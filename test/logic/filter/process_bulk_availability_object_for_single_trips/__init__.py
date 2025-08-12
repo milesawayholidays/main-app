@@ -1,0 +1,1 @@
+# This module contains tests for the process_bulk_availability_object_for_single_trip function.

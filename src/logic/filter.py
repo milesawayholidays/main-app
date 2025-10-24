@@ -18,14 +18,24 @@ import pandas as pd
 from geopy.distance import great_circle
 from random import shuffle
 
-from ..global_state import state
-from ..config import config
+from time import sleep
 
-from ..currencies.mileage import handler as mileage_handler
-from ..currencies.cash import handler as cash_handler
-
-from ..data_types.enums import CABIN, SOURCE
-from ..data_types.summary_objs import summary_trip, summary_round_trip
+try:
+    # Try relative imports first (when imported as part of src package)
+    from ..global_state import state
+    from ..config import config
+    from ..currencies.mileage import handler as mileage_handler
+    from ..currencies.cash import handler as cash_handler
+    from ..data_types.enums import CABIN, SOURCE
+    from ..data_types.summary_objs import summary_trip, summary_round_trip
+except ImportError:
+    # Fall back to absolute imports (when run directly or in tests)
+    from global_state import state
+    from config import config
+    from currencies.mileage import handler as mileage_handler
+    from currencies.cash import handler as cash_handler
+    from data_types.enums import CABIN, SOURCE
+    from data_types.summary_objs import summary_trip, summary_round_trip
 
 class Flight_Filter:
     """
@@ -54,7 +64,7 @@ class Flight_Filter:
         state.logger.info("Starting to filter top N trips from multiple sources")
         if not bulk_availability_by_source:
             state.logger.warning("No bulk availability data provided.")
-            raise ValueError("No bulk availability data provided.")
+            return None
         trips_by_cabin: dict[CABIN, list[summary_round_trip]] = dict()
         for source, bulk_availability in bulk_availability_by_source.items():
             state.logger.info(f"Processing bulk availability for source: {source.name} with length: {len(bulk_availability)}")
@@ -83,12 +93,12 @@ class Flight_Filter:
             for cabin_data in trips_by_cabin.values()
         ):
             state.logger.warning("No trips found in bulk availability data.")
-            raise ValueError("No trips found in bulk availability data.")
+            return None
         
         state.logger.info("Successfully fetched bulk availability data from multiple sources.")
 
         state.logger.info("Finding cheapest trips by cabin class")
-        topNTripsByCabin = self.__find_cheapest_cities_by_cabin_for_single_trip(trips_by_cabin, n=n)
+        topNTripsByCabin = self.find_cheapest_for_single_trips(trips_by_cabin, n=n)
 
         state.logger.info("Successfully found cheapest cities by cabin.")
         return topNTripsByCabin
@@ -191,7 +201,7 @@ class Flight_Filter:
         state.logger.info("Successfully fetched bulk availability data from multiple sources.")
 
         state.logger.info("Finding cheapest trips by cabin class")
-        topNTripsByCabin = self.__find_cheapest_cities_by_cabin_for_round_trip(trips_by_cabin, n=n)
+        topNTripsByCabin = self.find_cheapest_for_round_trips(trips_by_cabin, n=n)
 
         if not topNTripsByCabin or len(trips_by_cabin) == 0 or all(
             len(cabin_data.values()) == 0
@@ -226,7 +236,7 @@ class Flight_Filter:
     def __calc_distance(coord1, coord2):
         return great_circle(coord1, coord2).km
 
-    def __filter_trip(self, round_trip: summary_round_trip, outbound_row: pd.Series, filters: dict) -> bool:
+    def __filter_trip(self, outbound_row: pd.Series, filters: dict, return_row: pd.Series = None) -> bool: #TODO: FIX THIS FUNCTION TO BE ABLE TO RECEIVE BOTH SINGLE AND ROUND TRIPS
         """
         Apply filters to a complete round trip.
         
@@ -245,48 +255,48 @@ class Flight_Filter:
         """
         # Apply origin country filter (check outbound flight origin)
         if "origin_country" in filters:
-            outbound_country = outbound_row.get("origin_country")
+            outbound_country = outbound_row.get("origin_country", "Unknown")
             if outbound_country != filters["origin_country"]:
                 return False
         
         # Apply destination country filter (check outbound flight destination)
         if "destination_country" in filters:
-            destination_country = outbound_row.get("destination_country")
+            destination_country = outbound_row.get("destination_country", "Unknown")
             if destination_country != filters["destination_country"]:
                 return False
         
         # Apply origin cities filter
         if "origin_cities" in filters:
-            origin_city = outbound_row.get("origin_city")
+            origin_city = outbound_row.get("origin_city", "Unknown")
             if origin_city not in filters["origin_cities"]:
                 return False
         
         # Apply destination cities filter
         if "destination_cities" in filters:
-            destination_city = outbound_row.get("destination_city")
+            destination_city = outbound_row.get("destination_city", "Unknown")
             if destination_city not in filters["destination_cities"]:
                 return False
         
         # Apply maximum cost filter (total round trip cost)
         if "max_cost" in filters:
-            total_cost = round_trip.outbound.totalCost + round_trip.return_.totalCost
+            total_cost = outbound_row.get("totalCost", 0) + (return_row.get("totalCost", 0) if return_row is not None else 0)
             if total_cost > filters["max_cost"]:
                 return False
         
         # Apply distance filters
-        if "min_distance" in filters and round_trip.distance < filters["min_distance"]:
+        if "min_distance" in filters and outbound_row.get("distance", 0) < filters["min_distance"]:
             return False
-        if "max_distance" in filters and round_trip.distance > filters["max_distance"]:
+        if "max_distance" in filters and outbound_row.get("distance", 0) > filters["max_distance"]:
             return False
         
         # Apply exclusion filters
         if "exclude_origin_cities" in filters:
-            origin_city = outbound_row.get("origin_city")
+            origin_city = outbound_row.get("origin_city", "Unknown")
             if origin_city in filters["exclude_origin_cities"]:
                 return False
         
         if "exclude_destination_cities" in filters:
-            destination_city = outbound_row.get("destination_city")
+            destination_city = outbound_row.get("destination_city", "Unknown")
             if destination_city in filters["exclude_destination_cities"]:
                 return False
         
@@ -381,7 +391,8 @@ class Flight_Filter:
             pd.DataFrame: Processed DataFrame for the specified cabin class
         """
         cabin_df = flights_df[flights_df[f"{cabin.name}Available"] == True].copy()
-        
+        cabin_df = cabin_df[cabin_df[f"{cabin.name}RemainingSeats"] > 0]
+
         if cabin_df.empty:
             state.logger.warning(f"No flights found for cabin: {cabin.name}")
             return pd.DataFrame()
@@ -450,7 +461,7 @@ class Flight_Filter:
         
         mileage_value = mileage_handler.get_mileage_value(source.value)
 
-        trips_by_cabin: dict[CABIN, list[summary_trip]] = dict()
+        trips_by_city_by_cabin: dict[CABIN, dict[str, summary_trip]] = dict()
         state.logger.info(f"Starting to process each cabin class in bulk availability data for cabins: {include_cabins}")
         for cabin in include_cabins:
             state.logger.info(f"Processing cabin class: {cabin.name}")
@@ -463,24 +474,34 @@ class Flight_Filter:
             if cabin_df.empty:
                 state.logger.warning(f"No data found for cabin: {cabin.name}.")
                 continue
-            
-            trips_by_cabin[cabin] = []
-            for _, trip in cabin_df.iterrows():
-                # Yea that looks stupid but I'm too lazy to change it and idk, it won't break anything
-                trip = summary_trip(
-                    ID=trip["ID"],
-                    city=trip["origin_city"],
-                    totalCost=trip["TotalCost"],
-                    distance=trip["Distance"],
-                )
-                
+
+            if cabin not in trips_by_city_by_cabin:
+                trips_by_city_by_cabin[cabin] = {}
+
+            for _, row in cabin_df.iterrows():
                 # Apply filters to the complete trip
-                if filter and not self.__filter_trip(trip, trip, filter):
+                if filter and not self.__filter_trip(row, filter):
                     continue
 
-                trips_by_cabin[cabin].append(trip)
+                trip = summary_trip(
+                    ID=row["ID"],
+                    origin_city=row["origin_city"],
+                    destination_city=row["destination_city"],
+                    totalCost=row["TotalCost"],
+                    distance=row["Distance"],
+                )
 
+                if (trip.origin_city, trip.destination_city) not in trips_by_city_by_cabin[cabin]:
+                    trips_by_city_by_cabin[cabin][(trip.origin_city, trip.destination_city)] = {}
 
+                if trips_by_city_by_cabin[cabin][(trip.origin_city, trip.destination_city)] and trip.totalCost >= trips_by_city_by_cabin[cabin][(trip.origin_city, trip.destination_city)].totalCost:
+                    continue
+
+                trips_by_city_by_cabin[cabin][(trip.origin_city, trip.destination_city)] = trip
+
+        trips_by_cabin: dict[CABIN, list[summary_trip]] = dict()
+        for cabin, city_trips in trips_by_city_by_cabin.items():
+            trips_by_cabin[cabin] = list(city_trips.values())
         return trips_by_cabin
 
     def process_bulk_availability_object_for_round_trips(
@@ -588,17 +609,23 @@ class Flight_Filter:
                             interval = (return_["Date"] - outbound["Date"]).days
                             if interval < min_return_days or interval > max_return_days:
                                 continue
+
+                        # Apply filters to the complete round trip
+                        if filter and not self.__filter_trip(outbound, filter, return_row=return_):
+                            continue
                         
                         # Create the round trip object first
                         outbound_trip = summary_trip(
                             ID=outbound["ID"],
-                            city=outbound["origin_city"],
+                            origin_city=outbound["origin_city"],
+                            destination_city=outbound["destination_city"],
                             totalCost=outbound["TotalCost"],
                             distance=outbound["Distance"]
                         )
                         return_trip = summary_trip(
                             ID=return_["ID"],
-                            city=return_["origin_city"],
+                            origin_city=return_["origin_city"],
+                            destination_city=return_["destination_city"],
                             totalCost=return_["TotalCost"],
                             distance=return_["Distance"]
                         )
@@ -607,9 +634,7 @@ class Flight_Filter:
                             return_=return_trip,
                         )
                         
-                        # Apply filters to the complete round trip
-                        if filter and not self.__filter_trip(round_trip, outbound, filter):
-                            continue
+                       
                         
                         state.logger.info(f"Adding valid round trip from {origin} to {destination} for cabin {cabin.name}.")
                         round_trips_list.append(round_trip)
@@ -664,10 +689,10 @@ class Flight_Filter:
             total_cost += trip.totalCost
             total_distance += trip.distance
 
-        return total_cost / (total_distance * 1) if total_distance > 0 else float('inf')
+        return total_cost / (total_distance * 0.7) if total_distance > 0 else float('inf')
 
 
-    def __find_cheapest_cities_by_cabin_for_single_trip(self, trip_list_by_cabin: dict[CABIN, list[summary_trip]], n: int = 1) -> dict[CABIN, list[summary_trip]]:
+    def find_cheapest_for_single_trips(self, trip_list_by_cabin: dict[CABIN, list[summary_trip]], n: int = 1) -> dict[CABIN, list[summary_trip]]:
         """
         Find the N cheapest city pairings for each cabin class.
         
@@ -683,15 +708,19 @@ class Flight_Filter:
         Returns:
             summary_trip_list_by_cabin: Dictionary mapping cabin classes to lists of the N cheapest trips
         """
-        cheapest_trips_by_cabin: dict[CABIN, list[summary_trip]] = dict()
+        if not trip_list_by_cabin or len(trip_list_by_cabin) == 0:
+            state.logger.warning("No trips found in bulk availability data.")
+            return None
 
+        cheapest_trips_by_cabin: dict[CABIN, list[summary_trip]] = dict()
+     
         for cabin, trips in trip_list_by_cabin.items():
             if not trips:
                 state.logger.warning(f"No trips found for cabin {cabin.name}.")
                 continue
 
             # Sort the trips by total cost
-            sorted_trips = sorted(trips, key=lambda x: x.totalCost)
+            sorted_trips = sorted(trips, key=lambda x: self.__score(x))
 
             # Take the top N cheapest trips
             cheapest_trips = sorted_trips[:n]
@@ -702,8 +731,10 @@ class Flight_Filter:
 
             cheapest_trips_by_cabin[cabin] = cheapest_trips
 
+        return cheapest_trips_by_cabin
 
-    def __find_cheapest_cities_by_cabin_for_round_trip(self, round_trip_list_by_cabin: dict[CABIN, dict[tuple[str, str], list[summary_round_trip]]], n: int = 1) -> dict[CABIN, dict[tuple[str, str], list[summary_round_trip]]]:
+
+    def find_cheapest_for_round_trips(self, round_trip_list_by_cabin: dict[CABIN, dict[tuple[str, str], list[summary_round_trip]]], n: int = 1) -> dict[CABIN, dict[tuple[str, str], list[summary_round_trip]]]:
         """
         Find the N cheapest city pairings for each cabin class.
         
@@ -728,22 +759,9 @@ class Flight_Filter:
             - Uses n to determine how many city pairings to return
             - Sorts by the 5th element cost to ensure consistent quality across options
         """
-        # The goal here is to find the n cheapest cities for each cabin class based on the total cost of the outbound and return trips
-        # The process is as follows:
-        # For each cabin class:
-        #   
-        #   For each round Trips by City:
-        #       Sort each city's round trips by the total cost of the outbound and return trips
-        #       Create a sublist up to the 5th slot and append it to the cheapest_cities list
-        #   Once we're done with the round Trips by City:
-        #       Sort the cheapest_cities list by the total cost of the 5th element in each sublist.
-        #       Append the top n cheapest cities and append it to a cheapest_cities_by_cabin dictionary
-        #       This will give us a dictionary with cabin class as key and a list of the n cheapest cities as value.
-        #   Finally:
-        #       The cheapest cities will be a summary_round_trip object with the outbound and return trip
-        #       The outbound and return trips will be represented as summary_trip objects with ID, city (origin) and TotalCost
-        #
-        # We will return a dictionary with cabin class as key and a list of summary_round_trip objects as value
+        if not round_trip_list_by_cabin or len(round_trip_list_by_cabin) == 0:
+            return None
+        
         cheapest_cities_by_cabin: dict[CABIN, list[summary_round_trip]] = dict()
 
         for cabin, round_trip_by_city_pairings in round_trip_list_by_cabin.items():
@@ -751,31 +769,31 @@ class Flight_Filter:
                 state.logger.warning(f"No trips found for cabin {cabin.name}.")
                 continue
 
-            cheapest_cities: dict[tuple[str, str], list[summary_round_trip]] = dict()
+            sorted_cities: dict[tuple[str, str], list[summary_round_trip]] = dict()
 
-            for city_pairings, round_trip_list in round_trip_by_city_pairings.items():
-                if not round_trip_list:
+            for city_pairings, round_trips_list in round_trip_by_city_pairings.items():
+                if not round_trips_list:
                     state.logger.warning(f"No round trips found for cabin {cabin.name} at city pairings {city_pairings}.")
                     continue
-            
+                    
                 # Sort the round trips by the total cost of the outbound and return trips
-                round_trip_list.sort(key=lambda trip: trip.outbound.totalCost + trip.return_.totalCost)
-
+                round_trips_list.sort(key=lambda trip: trip.outbound.totalCost + trip.return_.totalCost)
+                
                 # Append the top 5 cheapest round trips to the cheapest_cities list
-                cheapest_cities[city_pairings] = round_trip_list[:5]
+                sorted_cities[city_pairings] = round_trips_list[:5]
 
-            if not cheapest_cities or len(cheapest_cities) == 0:
+            if not sorted_cities or len(sorted_cities) == 0:
                 state.logger.warning(f"No valid cheapest cities found for cabin {cabin}.")
                 continue
 
             # Flatten to list of (city_pairing, round_trips_list, 5th_trip_cost) for sorting
             flattened_cities = []
-            for city_pairing, round_trips_list in cheapest_cities.items():
-                first_trip_cost = round_trip_list[0].outbound.totalCost + round_trip_list[0].return_.totalCost
-                #first_trip_score = self.__score(round_trips_list[0].outbound, round_trips_list[0].return_)
+            for city_pairing, round_trips_list in sorted_cities.items():
+                first_trip_cost = round_trips_list[0].outbound.totalCost + round_trips_list[0].return_.totalCost
+
                 # Keep only trips that are within 10% of the cheapest trip
                 filtered_trips = [
-                    trip for trip in round_trip_list
+                    trip for trip in round_trips_list
                     if (trip.outbound.totalCost + trip.return_.totalCost) / first_trip_cost <= 1.1
                 ]
                 
@@ -788,7 +806,7 @@ class Flight_Filter:
                 round_trips_list = filtered_trips
                 average_score = self.__score(*[trip.outbound for trip in round_trips_list], *[trip.return_ for trip in round_trips_list]) / len(round_trips_list)
                 flattened_cities.append((city_pairing, round_trips_list, average_score))
-            
+
             flattened_cities.sort(key=lambda x: (x[2]))
             flattened_cities = flattened_cities[:n] # Take only n candidates
             shuffle(flattened_cities) # Shuffle the final candidates

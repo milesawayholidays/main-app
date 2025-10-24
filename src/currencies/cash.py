@@ -8,7 +8,10 @@ It is part of a larger system that manages flight alerts and related services.
 '''
 import requests
 
-from ..global_state import state
+try:
+    from ..global_state import state
+except ImportError:
+    from global_state import state
 
 class CashHandler:
     def __init__(self):
@@ -40,7 +43,7 @@ class CashHandler:
             raise ValueError("Target currency must be specified.")
         
         self.target_currency = target_currency.upper()
-        self.api_key = api_key
+        self.__api_key = api_key
         state.logger.info(f"CashHandler initialized with target currency: {self.target_currency}")
 
     def normal_to_cents(self, amount: float) -> int:
@@ -77,7 +80,7 @@ class CashHandler:
         Raises:
             Exception: If the API request fails or returns an error.
         """
-        url = f"https://v6.exchangerate-api.com/v6/{self.api_key}/pair/{base_currency}/{self.target_currency}"
+        url = f"https://v6.exchangerate-api.com/v6/{self.__api_key}/pair/{base_currency}/{self.target_currency}"
         response = requests.get(url)
         
         if response.status_code == 200:
@@ -114,3 +117,26 @@ class CashHandler:
         return amount_in_cents * rate // 100
 
 handler = CashHandler()
+
+def cents_to_str(cents: int, currency_symbol: str, currency_title: str) -> str:
+    """
+    Convert cents to a formatted currency string.
+    
+    This utility function converts integer cent values to properly formatted
+    currency strings with symbol and currency code.
+    
+    Args:
+        cents (int): Amount in cents
+        currency_symbol (str): Currency symbol (e.g., '$', 'R$')
+        currency_title (str): Currency code (e.g., 'USD', 'BRL')
+        
+    Returns:
+        str: Formatted currency string (e.g., "$ 123.45 (USD)")
+        
+    Raises:
+        ValueError: If currency_symbol or currency_title is not provided
+    """
+    if not currency_symbol or not currency_title:
+        state.logger.error("CURRENCY_SYMBOL or CURRENCY_TITLE environment variable is not set.")
+        raise ValueError("CURRENCY_SYMBOL or CURRENCY_TITLE environment variable is not set.")
+    return f"{currency_symbol} {cents // 100}.{cents % 100:02d} ({currency_title})"

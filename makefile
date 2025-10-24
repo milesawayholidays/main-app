@@ -30,6 +30,9 @@ help:
 	@echo "  make test                - Run tests"
 	@echo "  make test-all            - Run all tests with summary"
 	@echo "  make test-verbose        - Run tests with verbose output"
+	@echo "  make test-debug          - Run tests with Python debugger (pdb)"
+	@echo "  make test-breakpoint     - Run tests with breakpoint support"
+	@echo "  make test-specific       - Run specific test (use TEST=test.path.to.test)"
 	@echo "  make test-coverage       - Run tests with coverage analysis"
 	@echo "  make clean               - Clean up generated files"
 
@@ -84,7 +87,12 @@ docker-image:
 
 run-docker: docker-image
 	@echo "Running Docker container for FlightAlertsGroup..."
-	docker run -d -p 4000:4000 --env-file .env --name flight_alerts_group $(DOCKERPROJECT):latest
+	docker run -d -p 3000:4000 --env-file .env --name main-app $(DOCKERPROJECT):latest
+	@echo "Docker container is running."
+
+run-docker-a: 
+	@echo "Running Docker container for FlightAlertsGroup (attached)..."
+	docker run -it -p 3000:4000 --env-file .env --name main-app $(DOCKERPROJECT):latest
 	@echo "Docker container is running."
 
 stop-docker:
@@ -107,6 +115,18 @@ test: test-clear
 test-verbose: test-clear
 	@echo "🔍 Running Tests with Verbose Output..."
 	$(ACTIVATE) && $(PYTHON) -m unittest discover -s test -v
+
+test-debug: test-clear
+	@echo "🐛 Running Tests with Debug Mode..."
+	$(ACTIVATE) && $(PYTHON) -m pdb -c continue -m unittest discover -s test -v
+
+test-breakpoint: test-clear
+	@echo "🔍 Running Tests with Breakpoint Support..."
+	$(ACTIVATE) && PYTHONBREAKPOINT=pdb.set_trace $(PYTHON) -m unittest discover -s test -v
+
+test-specific:
+	@echo "🎯 Running Specific Test (use TEST=test.path.to.test)..."
+	$(ACTIVATE) && $(PYTHON) -m unittest $(TEST) -v
 
  
 

@@ -153,7 +153,8 @@ class SeatsAeroHandler:
                                 destination_region: REGION, 
                                 start_date: str = None, 
                                 end_date: str = None, 
-                                deepness: int = 1) -> list:
+                                deepness: int = 1,
+                                cabin: CABIN = None) -> list:
         """
         Fetch bulk flight availability data across regions and sources.
         
@@ -186,10 +187,12 @@ class SeatsAeroHandler:
                           f"start_date: {start_date}, end_date: {end_date}, deepness: {deepness}")
         if not all([source, origin_region, destination_region]):
             return []  # Return empty list if any parameter is missing
+
         params = {
             "source": source.value,
             "origin_region": origin_region.value,
             "destination_region": destination_region.value,
+            "cabin": cabin.value if cabin else None,
             "take": 1000
         }
 
@@ -208,7 +211,7 @@ class SeatsAeroHandler:
         seen_ids = set()  # Track IDs to avoid duplicates
 
         for i in range(1, deepness + 1):
-            # Call the api
+            # Call the api   
             response = requests.get(self.bulk_availability_url, headers=self.headers, params=params)
 
             if response.status_code == 200:

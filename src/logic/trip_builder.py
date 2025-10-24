@@ -21,10 +21,11 @@ The module handles:
 - Data formatting for spreadsheet export
 """
 import os
+from datetime import datetime
 
 from config import config
 from global_state import state
-from currencies.cash import handler as cash_handler
+from currencies.cash import handler as cash_handler, cents_to_str
 from currencies.mileage import handler as mileage_handler
 
 from services.openAI import handler as openAI_handler
@@ -58,8 +59,11 @@ class Trip:
         selling_price (int): Final selling price with commissions and fees
         normal_* (various): Converted values in system base currency
     """
-    
-    def __init__(self, availabilityId: str, originAirport: str, destinationAirport: str, departure: str, arrival: str, booking_links: list[str], source: str, mileageCost: int, taxes_currency: str, taxes_currency_symbol: str, taxes: float, cabin: str, remaining_seats: int = 0):
+
+    def __init__(self, availabilityId: str, region: str, originAirport: str, destinationAirport: str, departure_date: datetime, 
+                 departure_time: datetime, arrival_date: datetime, arrival_time: datetime,
+                 booking_links: list[str], source: str, mileageCost: int, taxes_currency: str, taxes_currency_symbol: str,
+                 taxes: float, cabin: str, remaining_seats: int = 0):
         """
         Initialize a Trip instance with flight details and automatic cost calculations.
         
@@ -86,16 +90,25 @@ class Trip:
             - Applies commission and credit card fees from config
             - Converts all monetary values to system base currency
         """
+        normal_currency = config.CURRENCY
+        normal_currency_symbol = config.CURRENCY_SYMBOL
         self.availability_Id = availabilityId
+        self.region = region
         self.origin_airport = originAirport
+        self.origin_city = config.IATA_CITY.get(originAirport, "Unknown")
+        self.origin_country = config.IATA_COUNTRY.get(originAirport, "Unknown")
         self.destination_airport = destinationAirport
-        self.departure = departure
-        self.arrival = arrival
+        self.destination_city = config.IATA_CITY.get(destinationAirport, "Unknown")
+        self.destination_country = config.IATA_COUNTRY.get(destinationAirport, "Unknown")
+        self.departure_date = departure_date
+        self.arrival_date = arrival_date
+        self.departure_time = departure_time
+        self.arrival_time = arrival_time
         self.booking_links = booking_links
         self.source = source
         self.mileage_cost = mileageCost
-        self.taxes_currency = taxes_currency
-        self.taxes_currency_symbol = taxes_currency_symbol
+        self.taxes_currency = taxes_currency if taxes > 0 else normal_currency
+        self.taxes_currency_symbol = taxes_currency_symbol if taxes > 0 else normal_currency_symbol
         self.taxes = taxes
         self.cabin = cabin
         mileage_value = mileage_handler.get_mileage_value(self.source)
@@ -110,9 +123,7 @@ class Trip:
         self.credit_card_fee = config.CREDIT_CARD_FEE
         
         self.selling_price = self.total_cost * (10000 + self.comission + self.credit_card_fee) // 10000
-
-        normal_currency = config.CURRENCY
-        normal_currency_symbol = config.CURRENCY_SYMBOL
+        
 
         self.normal_currency = normal_currency
         self.normal_currency_symbol = normal_currency_symbol
@@ -196,46 +207,21 @@ class Trip:
             raise ValueError("TAXES_CURRENCY_SYMBOL or TAXES_CURRENCY environment variable is not set.")
         return f"{self.mileage_cost} {self.source} miles"
 
-    def to_row(self) -> list:
-        return [
-            self.availability_Id,
-            self.origin_airport,
-            self.destination_airport,
-            self.departure.format("%Y-%m-%d %H:%M"),
-            self.arrival.format("%Y-%m-%d %H:%M"),
-            self.mileage_cost_to_str(),
-            self.taxes_to_str(),
-            self.normal_taxes_to_str(),
-            self.total_cost_to_str(),
-            self.normal_total_cost_to_str(),
-            self.selling_price,
-            self.normal_selling_price,
-            "; ".join(self.booking_links)
-        ]
-    
+    def selling_price_to_str(self) -> str:
+        """
+        Format selling price as a currency string in original currency.
 
-def cents_to_str(cents: int, currency_symbol: str, currency_title: str) -> str:
-    """
-    Convert cents to a formatted currency string.
+        Returns:
+            str: Formatted selling price including mileage value and taxes
+
+        Raises:
+            ValueError: If taxes currency symbol or currency code is not set
+        """
+        if not self.taxes_currency_symbol or not self.taxes_currency:
+            state.logger.error("TAXES_CURRENCY_SYMBOL or TAXES_CURRENCY environment variable is not set.")
+            raise ValueError("TAXES_CURRENCY_SYMBOL or TAXES_CURRENCY environment variable is not set.")
+        return cents_to_str(self.normal_selling_price, self.normal_currency_symbol, self.normal_currency)
     
-    This utility function converts integer cent values to properly formatted
-    currency strings with symbol and currency code.
-    
-    Args:
-        cents (int): Amount in cents
-        currency_symbol (str): Currency symbol (e.g., '$', 'R$')
-        currency_title (str): Currency code (e.g., 'USD', 'BRL')
-        
-    Returns:
-        str: Formatted currency string (e.g., "$ 123.45 (USD)")
-        
-    Raises:
-        ValueError: If currency_symbol or currency_title is not provided
-    """
-    if not currency_symbol or not currency_title:
-        state.logger.error("CURRENCY_SYMBOL or CURRENCY_TITLE environment variable is not set.")
-        raise ValueError("CURRENCY_SYMBOL or CURRENCY_TITLE environment variable is not set.")
-    return f"{currency_symbol} {cents // 100}.{cents % 100:02d} ({currency_title})"
 
 class TripOption(Trip):
     """
@@ -254,10 +240,13 @@ class TripOption(Trip):
     def __init__(self, release_date: str, trip: Trip):
         super().__init__(
             availabilityId=trip.availability_Id,
+            region=trip.region,
             originAirport=trip.origin_airport,
             destinationAirport=trip.destination_airport,
-            departure=trip.departure,
-            arrival=trip.arrival,
+            departure_date=trip.departure_date,
+            departure_time=trip.departure_time,
+            arrival_date=trip.arrival_date,
+            arrival_time=trip.arrival_time,
             booking_links=trip.booking_links,
             source=trip.source,
             mileageCost=trip.mileage_cost,
@@ -266,17 +255,55 @@ class TripOption(Trip):
             taxes=trip.taxes,
             cabin=trip.cabin,
             remaining_seats=trip.remaining_seats)
-        self.whatsapp_post = openAI_handler.generateWhatsAppPost(
-            origin=self.origin_airport,
-            destination=self.destination_airport,
-            departure_dates=[self.departure],
-            return_dates=[],
-            cabin=self.cabin,
-            selling_price=self.selling_price
-        )
-        self.images = fetch_image(f"{config.IATA_CITY.get(self.origin_airport, 'Unknown')} Landscape Tourism Beautiful")
-        self.pdf = None
+        #self.images = fetch_image(f"{config.IATA_CITY.get(self.origin_airport, 'Unknown')} Landscape Tourism Beautiful")
         self.release_date = release_date
+        
+    def to_row(self, whatsapp_post: bool = False) -> list:
+        whatsappPost = ""
+        if whatsapp_post:
+            whatsappPost = openAI_handler.generateWhatsAppPost(
+                origin_city=self.origin_city,
+                origin_country=self.origin_country,
+                destination_city=self.destination_city,
+                destination_country=self.destination_country,
+                departure_dates=[self.departure_date],
+                return_dates=[],
+                cabin=self.cabin,
+                miles_cost=self.mileage_cost_to_str(),
+                taxes=self.taxes_to_str(),
+                source=self.source,
+                total_cost=self.total_cost_to_str(),
+                selling_price=self.selling_price_to_str(),
+                remaining_seats=str(self.remaining_seats),
+                booking_link=self.booking_links[0] if self.booking_links else ""
+            )
+        return [
+            self.release_date,
+            self.availability_Id,
+            self.remaining_seats,
+            self.region,
+            self.source,
+            self.cabin,
+            self.origin_airport,
+            self.origin_city,
+            self.origin_country,
+            self.destination_airport,
+            self.destination_city,
+            self.destination_country,
+            str(self.departure_date),
+            str(self.departure_time),
+            str(self.arrival_date),
+            str(self.arrival_time),
+            self.mileage_cost,
+            self.taxes / 100,
+            self.taxes_currency,
+            self.normal_taxes / 100,
+            self.total_cost / 100,
+            self.normal_total_cost / 100,
+            self.selling_price / 100,
+            "; ".join(self.booking_links),
+            whatsappPost
+        ]
 
 class RoundTrip:
     """
@@ -293,7 +320,7 @@ class RoundTrip:
         normal_selling_price (int): Combined selling price in system base currency
     """
     
-    def __init__(self, outbound: Trip, return_: Trip):
+    def __init__(self, outbound: TripOption, return_: TripOption, OptionID: str):
         """
         Initialize a RoundTrip with outbound and return flights.
         
@@ -307,47 +334,12 @@ class RoundTrip:
         """
         self.outbound = outbound
         self.return_ = return_
+        self.region = f"{outbound.region}-{return_.region}"
+        self.mileage_cost = outbound.mileage_cost + return_.mileage_cost
+        self.taxes = outbound.normal_taxes + return_.normal_taxes
+        self.total_cost = outbound.normal_total_cost + return_.normal_total_cost
         self.selling_price = outbound.selling_price + return_.selling_price
-        self.normal_selling_price = outbound.normal_selling_price + return_.normal_selling_price
-
-    def to_row(self) -> list:
-        """
-        Create a row of data for spreadsheet export.
-        
-        Generates a comprehensive list of all round trip details formatted
-        for export to Google Sheets or other tabular formats.
-        
-        Returns:
-            list: List containing all trip details in order:
-                - Outbound/Return IDs, airports, dates, times
-                - Mileage costs, taxes (original and converted)
-                - Total costs (original and converted)
-                - Selling price and booking links
-        """
-        normal_selling_price = cents_to_str(self.normal_selling_price, self.outbound.normal_currency_symbol, self.outbound.normal_currency)
-        return [
-            self.outbound.availability_Id, #Outbound id
-            self.return_.availability_Id, #Return id
-            self.outbound.origin_airport, #Origin airport
-            self.return_.origin_airport, #Destination airport
-            self.outbound.departure, #Outbound departure
-            self.outbound.arrival, #Outbound arrival
-            self.return_.departure, #Return departure
-            self.return_.arrival, #Return arrival
-            self.outbound.mileage_cost_to_str(), #Outbound mileage cost
-            self.outbound.taxes_to_str(), #Outbound taxes
-            self.outbound.normal_taxes_to_str(), #Outbound normal taxes
-            self.outbound.total_cost_to_str(), #Outbound total cost
-            self.outbound.normal_total_cost_to_str(), #Outbound normal total cost
-            self.return_.mileage_cost_to_str(), #Return mileage cost
-            self.return_.taxes_to_str(), #Return taxes
-            self.return_.normal_taxes_to_str(), #Return normal taxes
-            self.return_.total_cost_to_str(), #Return total cost
-            self.return_.normal_total_cost_to_str(), #Return normal total cost
-            normal_selling_price, #Normal selling price
-            "; ".join(l for l in self.outbound.booking_links),
-            "; ".join(l for l in self.return_.booking_links),
-        ]
+        self.option_id = OptionID
     
     def normal_selling_price_to_str(self) -> str:
         """
@@ -362,9 +354,22 @@ class RoundTrip:
         if not self.outbound.normal_currency_symbol or not self.outbound.normal_currency:
             state.logger.error("NORMAL_SELLING_PRICE_CURRENCY_SYMBOL or NORMAL_SELLING_PRICE_CURRENCY environment variable is not set.")
             raise ValueError("NORMAL_SELLING_PRICE_CURRENCY_SYMBOL or NORMAL_SELLING_PRICE_CURRENCY environment variable is not set.")
-        return cents_to_str(self.normal_selling_price, self.outbound.normal_currency_symbol, self.outbound.normal_currency)
+        return cents_to_str(self.selling_price, self.outbound.normal_currency_symbol, self.outbound.normal_currency)
 
-class RoundTripOptions:
+    def to_row(self) -> list:
+        return [
+            self.outbound.release_date,
+            self.option_id,
+            self.outbound.availability_Id,
+            self.return_.availability_Id,
+            self.outbound.source,
+            self.mileage_cost,
+            cents_to_str(self.taxes, self.outbound.taxes_currency_symbol, self.outbound.taxes_currency),
+            cents_to_str(self.total_cost, self.outbound.taxes_currency_symbol, self.outbound.taxes_currency),
+            cents_to_str(self.selling_price, self.outbound.taxes_currency_symbol, self.outbound.taxes_currency),
+        ]
+
+class Route:
     """
     Represents a collection of round trip options with marketing content.
     
@@ -390,7 +395,7 @@ class RoundTripOptions:
         pdf (PDF_OBJ): Generated PDF report for the round trip options
     """
     
-    def __init__(self, roundTrips: list[RoundTrip], origin_city: str, destination_city: str, origin_country: str, destination_country: str, cabin: str, release_date: str):
+    def __init__(self, ID: str, roundTrips: list[RoundTrip], origin_city: str, destination_city: str, origin_country: str, destination_country: str, cabin: str, release_date: str):
         """
         Initialize RoundTripOptions with trips and generate marketing content.
         
@@ -409,49 +414,85 @@ class RoundTripOptions:
             - Calculates departure/return date ranges
             - Determines highest selling price for marketing
         """
+        if not roundTrips or len(roundTrips) == 0:
+            state.logger.error("RoundTrips list is empty.")
+            return {}
+        
+        self.ID = ID
+        self.region = roundTrips[0].region
         self.roundTrips = roundTrips
         self.origin_city = origin_city
         self.destination_city = destination_city
         self.origin_country = origin_country
         self.destination_country = destination_country
-        self.departure_dates = sorted(set(trip.outbound.departure for trip in roundTrips))
-        self.return_dates = sorted(set(trip.return_.departure for trip in roundTrips))
-        self.selling_price = getHighestSellingPrice(roundTrips)
+        self.departure_dates = sorted(set(trip.outbound.departure_date for trip in roundTrips))
+        self.return_dates = sorted(set(trip.return_.departure_date for trip in roundTrips))
+        
         self.cabin = cabin
         self.source = roundTrips[0].outbound.source if roundTrips else "Unknown"
         self.release_date = release_date
-        self.whatsapp_post = openAI_handler.generateWhatsAppPost(
-            origin=f"{origin_city}({origin_country})",
-            destination=f"{destination_city}({destination_country})",
+
+        sorted(roundTrips, key=lambda x: x.selling_price)
+        self.highest_selling_price = roundTrips[-1].selling_price
+        self.lowest_selling_price = roundTrips[0].selling_price
+        self.average_selling_price = sum(trip.selling_price for trip in roundTrips) // len(roundTrips) if roundTrips else 0
+
+        sorted(roundTrips, key=lambda x: x.outbound.mileage_cost + x.return_.mileage_cost)
+        self.highest_mileage_cost = roundTrips[-1].outbound.mileage_cost + roundTrips[-1].return_.mileage_cost
+        self.lowest_mileage_cost = roundTrips[0].outbound.mileage_cost + roundTrips[0].return_.mileage_cost
+        self.average_mileage_cost = sum(trip.outbound.mileage_cost + trip.return_.mileage_cost for trip in roundTrips) // len(roundTrips) if roundTrips else 0
+
+        sorted(roundTrips, key=lambda x: x.outbound.normal_taxes + x.return_.normal_taxes)
+        self.highest_taxes = roundTrips[-1].outbound.normal_taxes + roundTrips[-1].return_.normal_taxes
+        self.lowest_taxes = roundTrips[0].outbound.normal_taxes + roundTrips[0].return_.normal_taxes
+        self.average_taxes = sum(trip.outbound.normal_taxes + trip.return_.normal_taxes for trip in roundTrips) // len(roundTrips) if roundTrips else 0
+
+        sorted(roundTrips, key=lambda x: x.outbound.normal_total_cost + x.return_.normal_total_cost)
+        self.highest_total_cost = roundTrips[-1].outbound.normal_total_cost + roundTrips[-1].return_.normal_total_cost
+        self.lowest_total_cost = roundTrips[0].outbound.normal_total_cost + roundTrips[0].return_.normal_total_cost
+        self.average_total_cost = sum(trip.outbound.normal_total_cost + trip.return_.normal_total_cost for trip in roundTrips) // len(roundTrips) if roundTrips else 0
+
+
+        """ self.whatsapp_post = openAI_handler.generateWhatsAppPost(
+            origin_city=origin_city,
+            origin_country=origin_country,
+            destination_city=destination_city,
+            destination_country=destination_country,
             departure_dates=self.departure_dates,
             return_dates=self.return_dates,
             cabin=cabin,
-            selling_price=self.selling_price
-        )
-        self.images = fetch_image(f"{destination_city} Landscape Tourism Beautiful")
+            miles_cost=f"{mileage_cost} {roundTrips[0].outbound.source} miles",
+            taxes=cents_to_str(taxes, roundTrips[0].outbound.normal_currency_symbol, roundTrips[0].outbound.normal_currency),
+            source=self.source,
+            selling_price=self.selling_price,
+            remaining_seats=str(min(trip.outbound.remaining_seats for trip in roundTrips)) if roundTrips else "0",
+            booking_link=roundTrips[0].outbound.booking_links[0] if roundTrips and roundTrips[0].outbound.booking_links else ""
+        ) """
+        #self.images = fetch_image(f"{destination_city} Landscape Tourism Beautiful")
 
-    def set_release_date(self, release_date: str):
-        """
-        Set the release date for the round trip options.
+    def to_row(self) -> list[str]:
+        return [
+            self.release_date,                              #Release Date
+            self.ID,                                        #Option ID
+            self.region,                                    #Region
+            self.origin_city,                               #Origin City
+            self.origin_country,                            #Origin Country
+            self.destination_city,                          #Destination City
+            self.destination_country,                       #Destination Country
+            self.highest_mileage_cost,                      #Highest Mileage Cost
+            self.lowest_mileage_cost,                       #Lowest Mileage Cost
+            self.average_mileage_cost,                      #Average Mileage Cost
+            self.highest_taxes,                             #Highest Taxes
+            self.lowest_taxes,                              #Lowest Taxes
+            self.average_taxes ,                            #Average Taxes
+            self.highest_total_cost,                        #Highest Total Cost
+            self.lowest_total_cost,                         #Lowest Total Cost
+            self.average_total_cost,                        #Average Total Cost
+            self.highest_selling_price,                     #Highest Selling Price
+            self.lowest_selling_price,                      #Lowest Selling Price
+            self.average_selling_price,                     #Average Selling Price
+        ]
         
-        Args:
-            release_date (str): Date string in 'YYYY-MM-DD' format
-            
-        Note:
-            - This method allows updating the release date after initialization
-        """
-        self.release_date = release_date
-    def delete_images(self):
-        """
-        Delete temporary files associated with this round trip option.
-        
-        This method is used to clean up any temporary files created during
-        the processing of round trip options, such as images or PDFs.
-        """
-        for image in self.images:
-            if image and image.filePath and os.path.exists(image.filePath):
-                os.remove(image.filePath)
-
 
 def getHighestSellingPrice(trips: list[RoundTrip]) -> str:
     """
@@ -480,14 +521,14 @@ def getHighestSellingPrice(trips: list[RoundTrip]) -> str:
     highest_selling_price = 0
     normal_highest_selling_price_str = ""
     for trip in trips:
-        if trip.normal_selling_price > highest_selling_price:
-            highest_selling_price = trip.normal_selling_price
+        if trip.selling_price > highest_selling_price:
+            highest_selling_price = trip.selling_price
             normal_highest_selling_price_str = trip.normal_selling_price_to_str()
 
     return normal_highest_selling_price_str
 
 
-def format_availability_object(availabilityObject: dict) -> Trip:
+def format_availability_object(availabilityObject: dict, region: str) -> Trip:
     """
     Convert raw availability data into a Trip object.
     
@@ -516,7 +557,7 @@ def format_availability_object(availabilityObject: dict) -> Trip:
         - Combines multiple booking links with commas
         - Uses segment source for airline identification
     """
-    if not availabilityObject or len(availabilityObject) == 0:
+    if not availabilityObject or len(availabilityObject) == 0 or "data" not in availabilityObject or len(availabilityObject["data"]) == 0:
         state.logger.error("Availability object is empty.")
         return None
     
@@ -528,23 +569,31 @@ def format_availability_object(availabilityObject: dict) -> Trip:
 
     booking_links_as_str_list = []
     if "booking_links" in availabilityObject:
-        booking_links_as_str_list = [f"{link['label']}: {link['link']}" for link in availabilityObject["booking_links"]]    
+        booking_links_as_str_list = [f"{link['link']}" for link in availabilityObject["booking_links"]]    
 
+    cheapest = min(availabilityObject["data"], 
+                   key=lambda x: x["MileageCost"] * mileage_handler.get_mileage_value(x["AvailabilitySegments"][0]["Source"]) // 1000 + x["TotalTaxes"])
+
+    departure = cheapest["AvailabilitySegments"][0]["DepartsAt"]
+    arrival = cheapest["AvailabilitySegments"][len(cheapest["AvailabilitySegments"]) - 1]["ArrivesAt"]
 
     return Trip(
-        availabilityId=availabilityObject["data"][0]["AvailabilityID"],
-        originAirport=availabilityObject["data"][0]["AvailabilitySegments"][0]["OriginAirport"],
-        destinationAirport=availabilityObject["data"][0]["AvailabilitySegments"][len(availabilityObject["data"][0]["AvailabilitySegments"]) - 1]["DestinationAirport"],
-        departure=availabilityObject["data"][0]["AvailabilitySegments"][0]["DepartsAt"],
-        arrival=availabilityObject["data"][0]["AvailabilitySegments"][len(availabilityObject["data"][0]["AvailabilitySegments"]) - 1]["ArrivesAt"],
+        availabilityId=cheapest["AvailabilityID"],
+        region=region,
+        originAirport=cheapest["AvailabilitySegments"][0]["OriginAirport"],
+        destinationAirport=cheapest["AvailabilitySegments"][len(cheapest["AvailabilitySegments"]) - 1]["DestinationAirport"],
+        departure_date= datetime.strptime(departure, "%Y-%m-%dT%H:%M:%SZ").date(),
+        departure_time=datetime.strptime(departure, "%Y-%m-%dT%H:%M:%SZ").time(),
+        arrival_date=datetime.strptime(arrival, "%Y-%m-%dT%H:%M:%SZ").date(),
+        arrival_time=datetime.strptime(arrival, "%Y-%m-%dT%H:%M:%SZ").time(),
         booking_links=booking_links_as_str_list,
-        source=availabilityObject["data"][0]["AvailabilitySegments"][0]["Source"],
-        mileageCost=availabilityObject["data"][0]["MileageCost"],
-        taxes_currency=availabilityObject["data"][0]["TaxesCurrency"],
-        taxes_currency_symbol=availabilityObject["data"][0]["TaxesCurrencySymbol"],
-        taxes=availabilityObject["data"][0]["TotalTaxes"],
-        cabin=availabilityObject["data"][0]["Cabin"],
-        remaining_seats=availabilityObject["data"][0]["RemainingSeats"] if "RemainingSeats" in availabilityObject["data"][0] else 0
+        source=cheapest["AvailabilitySegments"][0]["Source"],
+        mileageCost=cheapest["MileageCost"],
+        taxes_currency=cheapest["TaxesCurrency"],
+        taxes_currency_symbol=cheapest["TaxesCurrencySymbol"],
+        taxes=cheapest["TotalTaxes"],
+        cabin=cheapest["Cabin"],
+        remaining_seats=cheapest["RemainingSeats"] if "RemainingSeats" in cheapest else 0
     )
 
 

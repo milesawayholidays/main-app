@@ -33,28 +33,34 @@ Key Features:
 """
 
 import os
-import random
-from datetime import date, timedelta, datetime
-from itertools import cycle
-from multipledispatch import dispatch
+from datetime import date, timedelta
 from requests import Response
 
 from global_state import state
 from config import config
 
-from logic.filter import flight_Filter, summary_round_trip_list_by_city_pairing_by_cabin, summary_trip_list_by_cabin
+from logic.filter import flight_Filter
+from data_types.summary_objs import summary_round_trip, summary_trip
+from data_types.enums import CABIN
+
+# Type aliases for cleaner code
+summary_round_trip_list_by_city_pairing_by_cabin = dict[CABIN, dict[tuple[str, str], list[summary_round_trip]]]
+summary_trip_list_by_cabin = dict[CABIN, list[summary_trip]]
 
 
 from logic.trip_builder import RoundTrip, format_availability_object, TripOption
-from logic.pdf_generator import generate_pdf
-from logic.trip_builder import RoundTripOptions
+from logic.pdf_generator import generate_pdf_for_round_trips, generate_pdf_for_single_trips
+from logic.trip_builder import Route
+
+from currencies.cash import cents_to_str
 
 from services.seats_aero import seats_aero_handler
-from services.gmail import email_self
+from services.email import email_self
 from services.google_sheets import handler as sheets_handler  
 
 from data_types.enums import SOURCE, REGION, CABIN
 from data_types.pdf_types import PDF_OBJ
+from data_types.flight_options import FlightOptions
 
 
 def GET_round_from_region_to_region(
@@ -197,11 +203,12 @@ def GET_round_from_region_to_region(
 
     return Response(status=200, data={"message": "Flight options processed successfully"})
 
+#TODO: Since it will be necessary to fetch both outgoing and incoming flights for each region pair, might as well make this a general function with a filter param. 
 def GET_round_from_country_to_world(
         country: str, 
         start_date: str = None, 
         end_date: str = None,
-        cabins: list[CABIN] = None, 
+        cabin: list[CABIN] = None, 
         min_return_days: int = 1, 
         max_return_days: int = 60,
         n: int = 1,
@@ -243,18 +250,21 @@ def GET_round_from_country_to_world(
 
     state.logger.info(f"Fetching flights from {country} ({origin_region.value}) to all world regions")
 
-    # Call the main pipeline function with the specified country and region
     bulk_availability_search_by_source_by_region_list: dict[REGION, dict[SOURCE, list]] = dict()
     hasTrips = False
     for region in REGION:
+        if region not in bulk_availability_search_by_source_by_region_list:
+            bulk_availability_search_by_source_by_region_list[region] = dict()
         for source in SOURCE:
+            new_deepness = deepness if region != origin_region else deepness * 2
             response = seats_aero_handler.fetch_bulk_availability(
                 source=source,
                 start_date=start_date,
                 end_date=end_date,
                 origin_region=origin_region,
                 destination_region=region,
-                deepness=deepness
+                deepness=new_deepness,
+                cabin=cabin
             )
             if not response and len(response) == 0:
                 continue
@@ -263,7 +273,28 @@ def GET_round_from_country_to_world(
             if source not in bulk_availability_search_by_source_by_region_list[region]:
                 bulk_availability_search_by_source_by_region_list[region][source] = []
             bulk_availability_search_by_source_by_region_list[region][source].extend(response)
+
+            if region == origin_region:
+                hasTrips = True
+                continue
+
+            response = seats_aero_handler.fetch_bulk_availability(
+                source=source,
+                start_date=start_date,
+                end_date=end_date,
+                origin_region=region,
+                destination_region=origin_region,
+                deepness=new_deepness,
+                cabin=cabin
+            )
+            if not response and len(response) == 0:
+                continue
+            if source not in bulk_availability_search_by_source_by_region_list[region]:
+                bulk_availability_search_by_source_by_region_list[region][source] = []
+            bulk_availability_search_by_source_by_region_list[region][source].extend(response)
+
             hasTrips = True
+
 
     if not hasTrips:
         state.logger.error(f"No data found in bulk availability search for country: {country}.")
@@ -278,7 +309,7 @@ def GET_round_from_country_to_world(
     for region, bulk_availability in bulk_availability_search_by_source_by_region_list.items():
         result = flight_Filter.get_best_round_trips_from_multiple_sources(
             bulk_availability_by_source=bulk_availability,
-            cabins=cabins,
+            cabins=cabin,
             min_return_days=min_return_days,
             max_return_days=max_return_days,
             n=n,
@@ -300,38 +331,32 @@ def GET_round_from_country_to_world(
     state.logger.info(f"Flights analysed")
 
     hasTrips = False
-    flight_options_by_region: dict[REGION, list[RoundTripOptions]] = dict()
+    flight_options_by_region: dict[REGION, FlightOptions] = dict()
     for region, trips in best_trips_by_region.items():
         if trips is None or len(trips) == 0:
             state.logger.warning(f"No trips found for region: {region}")
             continue
-        result = format_round_flights(trips)
-        if not result or len(result) == 0:
+        result = format_round_flights(trips, region.name)
+        if not result:
+            state.logger.warning(f"No flight options found for region: {region}")
             continue
         flight_options_by_region[region] = result     
         hasTrips = True
 
     if not hasTrips:
         return {"status": 204, "data":{"error": "No valid flight options found"}}
-
-    pdfs_list = []
+    
     for options in flight_options_by_region.values():
-        if not options or len(options) == 0:
-            continue
         # Generate PDFs for each flight option
-        state.logger.info(f"Generating PDFs for {len(options)} flight options")
-        pdfs = broadcast_round_flights(options, n)
-        if not pdfs or len(pdfs) == 0:
-            state.logger.warning("No PDFs generated for the current flight options")
-            continue
-        pdfs_list.extend(pdfs)
+        state.logger.info(f"Generating PDFs for flight options")
+        broadcast_round_flights(options, n)
 
     # Delete the files used in the response so the server isn't overloaded with files
-    for options in flight_options_by_region.values():
-        clear_round(options)
+    #for options in flight_options_by_region.values():
+    #    clear_round(options.round_options)
 
-    clear_pdfs(*pdfs_list)
-
+    #clear_pdfs(*pdfs_list)
+    
     return {"status": 200, "data": {"message": "Flight options processed successfully"}}
 
 def GET_single_from_country_to_world(
@@ -365,18 +390,20 @@ def GET_single_from_country_to_world(
 
     state.logger.info(f"Starting flight alert pipeline for country: {country} with single trip processing")
     if not country:
-        return {"statusCode": 400, "message": "Country must be specified."}
+        return {"status": 400, "message": "Country must be specified."}
 
     try:
         origin_region = REGION.from_country(country, config.COUNTRY_REGION)
     except ValueError as e:
-        return {"statusCode": 400, "message": str(e)}   
+        return {"status": 400, "message": str(e)}   
 
     state.logger.info(f"Fetching flights from {country} ({origin_region.value}) to all world regions")
 
     # Call the main pipeline function with the specified country and region
-    bulk_availability_search_by_source_list: dict[SOURCE, list] = dict()
+    search_result: dict[REGION, dict[SOURCE, list]] = dict()
     for region in REGION:
+        if region not in search_result:
+            search_result[region] = dict()
         for source in SOURCE:
             response = seats_aero_handler.fetch_bulk_availability(
                 source=source,
@@ -386,44 +413,51 @@ def GET_single_from_country_to_world(
                 destination_region=region,
                 deepness=deepness
             )
-            if source not in bulk_availability_search_by_source_list:
-                bulk_availability_search_by_source_list[source] = []
+            if source not in search_result:
+                search_result[region][source] = []
             if response:  # Only extend if response is not empty
-                bulk_availability_search_by_source_list[source].extend(response)
+                search_result[region][source].extend(response)
 
-    if not bulk_availability_search_by_source_list or len(bulk_availability_search_by_source_list) == 0:
+    if not search_result or len(search_result) == 0:
         state.logger.error(f"No data found in bulk availability search for country: {country}.")
         raise ValueError(f"No data found in bulk availability search for country: {country}.")
     
     state.update_flag('flightsRetrieved')
-    state.logger.info(f"Flights retrieved successfully with length: {len(bulk_availability_search_by_source_list)}")
+    state.logger.info(f"Flights retrieved successfully with length: {len(search_result)}")
 
     state.logger.info("Starting to filter top N round trips from multiple sources")
 
-    topNTrips: summary_trip_list_by_cabin = flight_Filter.getTopNTripsFromMultipleSources(
-        bulk_availability_by_source=bulk_availability_search_by_source_list,
-        cabins=cabins,
-        n=n,
-        filter={"origin_country": country}
-    )
+    best_trips_by_cabin_by_region: dict[REGION, dict[CABIN, list[summary_trip]]] = dict()
+    for region, bulk_availability in search_result.items():
+        best_trips_by_cabin_by_region[region] = flight_Filter.getTopNTripsFromMultipleSources(
+            bulk_availability_by_source=bulk_availability,
+            cabins=cabins,
+            n=n,
+            filter={"origin_country": country}
+        )
 
-    if not topNTrips:
-        state.logger.error("No data found in top N flights.")
     state.update_flag('flightsAnalysed')
-    state.logger.info(f"Flights analysed")
+    state.logger.info(f"Flights analysed.")
 
-    flight_options = format_single_flights(topNTrips)
+    flight_options: dict[REGION, dict[CABIN, list[TripOption]]] = dict()
+    for region, options_by_cabin in best_trips_by_cabin_by_region.items():
+        flight_options[region] = format_single_flights(options_by_cabin, region.name)
 
     if (not flight_options) or (len(flight_options) == 0):
         state.logger.error("No valid flight options found.")
-        return 204
+        return {"status": 404, "message": "No valid flight options found."}
 
-    pdfs = broadcast_single_flights(flight_options, n)
+    for region, options_by_cabin in flight_options.items():
+        broadcast_single_flights(options_by_cabin, n)
     # Delete the files used in the response so the server isn't overloaded with files
-    clear_round(flight_options, pdfs)
-    return 200
 
-def format_single_flights(trips_by_cabin: summary_trip_list_by_cabin) -> dict[CABIN, list[TripOption]]:
+    for cabin_option in flight_options.values():
+        for option in cabin_option.values():
+            clear_single(option)
+
+    return {"status": 200, "message": "Success"}
+
+def format_single_flights(trips_by_cabin: dict[CABIN, list[summary_trip]], region: str) -> dict[CABIN, list[TripOption]]:
     """
     Format top N round trips into RoundTripOptions.
     
@@ -431,40 +465,37 @@ def format_single_flights(trips_by_cabin: summary_trip_list_by_cabin) -> dict[CA
     RoundTripOptions for further processing.
 
     Args:
-        trips (summary_trip_list_by_cabin): Filtered top N round trips
+        trips_by_cabin dict[CABIN, list[summary_trip]]: Filtered trips listed by cabin
     Returns:
         dict[CABIN, list[TripOption]]: Dictionary of formatted trips by cabin class
     Note: 
         overloaded method to handle both summary_round_trip_list_by_city_pairing_by_cabin
         and summary_trip_list_by_cabin types
     """
-    state.logger.info("Starting to format top N round trips")
-    
-    turns = cycle(["Morning", "Noon", "Night"])
+    if not trips_by_cabin or len(trips_by_cabin.items()) == 0:
+        state.logger.warning("No trips found for formatting.")
+        return {}
 
-    tripOptions: list[TripOption] = []
-    for cabin, trips_by_cabin in trips_by_cabin.items():
-        days = 0
-        turns_index = 0
+    tripOptions: dict[CABIN, list[TripOption]] = dict()
+    for cabin, trips in trips_by_cabin.items():
         state.logger.info(f"Formatting top N round trips for cabin: {cabin.name}")
-        for trip in trips_by_cabin:
-            formatted_trip = format_availability_object(seats_aero_handler.fetch_availability(trip.ID))
-            tripOptions.append(TripOption(
-                trip=formatted_trip,
-                release_date= f"{(date.today() + timedelta(days=days+1)).strftime('%Y-%m-%d')} {next(turns)}",
+        if cabin not in tripOptions:
+                tripOptions[cabin] = []
+        for trip in trips:
+            formatted_trip = format_availability_object(seats_aero_handler.fetch_availability(trip.ID), region)
+            
+            tripOptions[cabin].append(TripOption(
+                release_date=f"{(date.today().strftime("%Y-%m-%d"))}",
+                trip=formatted_trip
             ))
-
-            turns_index += 1
-            if turns_index >= 3:
-                turns_index = 0
-                days += 1
         
     state.logger.info("Top N round trips formatted successfully")
     state.update_flag('flightsFormatted')
     return tripOptions
 
 
-def format_round_flights(trips_by_cabin: summary_round_trip_list_by_city_pairing_by_cabin) -> list[RoundTripOptions]:
+
+def format_round_flights(trips_by_cabin: summary_round_trip_list_by_city_pairing_by_cabin, region: str) -> FlightOptions:
     """
     Format top N round trips into RoundTripOptions.
     This function takes the filtered top N round trips and formats them into
@@ -478,15 +509,16 @@ def format_round_flights(trips_by_cabin: summary_round_trip_list_by_city_pairing
         overloaded method to handle both summary_round_trip_list_by_city_pairing_by_cabin
         and summary_trip_list_by_cabin types
     """
-    turns = cycle(["Morning", "Noon", "Night"])
 
-    roundTripOptions: list[RoundTripOptions] = [] 
+    single_trips: list[TripOption] = []
+    round_relation_trips: list[RoundTrip] = []
+    round_options: list[Route] = [] 
+    
     for cabin, city_pairings_round_trips in trips_by_cabin.items():
         state.logger.info(f"Formatting top N round trips for cabin: {cabin.name}")
 
-        days = 0
-        turns_index = 0
         for city_pairing, round_trips in city_pairings_round_trips.items():
+            optionID = str(hash(f"{city_pairing}-{cabin}-{date.today()}"))
             state.logger.info(f"Formatting {len(round_trips)} round trips for city pairing: {city_pairing}")
             formmatted_round_trips: list[RoundTrip] = []
             for round_trip in round_trips:
@@ -495,43 +527,71 @@ def format_round_flights(trips_by_cabin: summary_round_trip_list_by_city_pairing
                     continue
                 outbound = seats_aero_handler.fetch_availability(round_trip.outbound.ID)
                 return_ = seats_aero_handler.fetch_availability(round_trip.return_.ID)
+                state.logger.info(f"Fetched availability for outbound ID: {round_trip.outbound.ID} and return ID: {round_trip.return_.ID}")
                 if not outbound or not return_:
-                    state.logger.warning(f"Failed to fetch availability for round trip: {round_trip.ID}")
                     continue
 
-                formatted_outbound = format_availability_object(outbound)
-                formated_return = format_availability_object(return_)  
+                formatted_outbound = TripOption(
+                    release_date=f"{(date.today().strftime('%Y-%m-%d'))}",
+                    trip=format_availability_object(outbound, region)
+                )
 
-                if formatted_outbound is None or formated_return is None:
-                    state.logger.warning(f"Failed to format availability for round trip: {round_trip.ID}")
+                formatted_return = TripOption(
+                    release_date=f"{(date.today().strftime('%Y-%m-%d'))}",
+                    trip=format_availability_object(return_, region)
+                )
+                state.logger.info(f"Formatted availability for outbound ID: {round_trip.outbound.ID} and return ID: {round_trip.return_.ID}")
+
+                if formatted_outbound is None or formatted_return is None:
+                    state.logger.warning(f"Failed to format availability for round trip")
                     continue
+
+                single_trips.append(formatted_outbound)
+                single_trips.append(formatted_return)
+                state.logger.info(f"Appended formatted single trips for outbound ID: {round_trip.outbound.ID} and return ID: {round_trip.return_.ID}")
 
                 formmatted_round_trips.append(RoundTrip(
-                    outbound=formatted_outbound,
-                    return_=formated_return
+                    outbound=TripOption(
+                        release_date=f"{(date.today().strftime('%Y-%m-%d'))}",
+                        trip=formatted_outbound
+                    ),
+                    return_=TripOption(
+                        release_date=f"{(date.today().strftime('%Y-%m-%d'))}",
+                        trip=formatted_return
+                    ),
+                    OptionID=optionID
                 ))
-                
-            roundTripOptions.append(RoundTripOptions(
+                state.logger.info(f"Appended formatted round trip for outbound ID: {round_trip.outbound.ID} and return ID: {round_trip.return_.ID}")
+
+            if len(formmatted_round_trips) == 0:
+                state.logger.warning(f"No valid round trips found for city pairing: {city_pairing}")
+                continue
+
+            round_relation_trips.extend(formmatted_round_trips)
+            state.logger.info(f"Total formatted round trips so far: {len(round_relation_trips)}")
+
+            round_options.append(Route(
+                ID=optionID,
                 roundTrips=formmatted_round_trips,
                 origin_city=city_pairing[0],
                 destination_city=city_pairing[1],
                 origin_country= config.IATA_COUNTRY.get(formmatted_round_trips[0].outbound.origin_airport, "Unknown"),
                 destination_country= config.IATA_COUNTRY.get(formmatted_round_trips[0].outbound.destination_airport, "Unknown"),
-                release_date=f"{(date.today() + timedelta(days=days+1)).strftime('%Y-%m-%d')} {next(turns)}",
-                cabin=cabin
+                release_date=f"{(date.today().strftime('%Y-%m-%d'))}",
+                cabin=cabin.value
             ))
-
-            turns_index += 1
-            if turns_index >= 3:
-                turns_index = 0
-                days += 1
+            state.logger.info(f"Created RoundTripOptions for city pairing: {city_pairing} with {len(formmatted_round_trips)} round trips")
 
     state.logger.info("Top N round trips formatted successfully")
     state.update_flag('flightsFormatted')
 
     state.logger.info("Top N round trips shuffled successfully")
 
-    return roundTripOptions
+    return FlightOptions(
+        single_trips=single_trips,
+        round_trips=round_relation_trips,
+        round_options=round_options
+    )
 
 HEADERS = [
     "Outbound ID", "Return ID", "Origin Airport", "Destination Airport", 
@@ -543,7 +603,8 @@ HEADERS = [
     "Normal Selling Price", "Outbound Booking Links", "Return Booking Links"
     ]
 
-def broadcast_single_flights(tripOptions: dict[CABIN, list[TripOption]], n: int) -> list[PDF_OBJ]:
+
+def broadcast_single_flights(tripOptions: dict[CABIN, list[TripOption]], n: int):
     """
     Generate marketing content, PDFs, store data, and email reports for flight options.
     This function processes the formatted trip options to generate WhatsApp
@@ -558,54 +619,30 @@ def broadcast_single_flights(tripOptions: dict[CABIN, list[TripOption]], n: int)
     """
 
     state.logger.info("Starting broadcast of flight options")
-
-    pdfs = [generate_pdf(option, option.release_date) for options in tripOptions.values() for option in options]
-    state.logger.info("PDFs generated successfully")
-    results_sheet_id = config.RESULT_SHEET_ID
-    for cabin, options in tripOptions.items():
-        rows_len = len(options)
-        for option in options:
-            
-            sheets_handler.get_sheet(
-                results_sheet_id
-            ).create_worksheet(
-                worksheet_name=f"{cabin.name}: {option.release_date} - {config.IATA_CITY(option.origin_airport)}({config.IATA_COUNTRY(option.origin_airport)}) to {config.IATA_CITY(option.destination_airport)}({config.IATA_COUNTRY(option.destination_airport)})",
-                rows_n=rows_len,
-                cols_n=len(HEADERS),
-                headers=HEADERS
-            ).add_rows(
-                rows=[
-                    option.to_row()
-                ]
-            ).add_row(
-                row=[
-                    "selling_price",
-                    option.selling_price
-                ]
-            )
+    
+    rows = [option.to_row() for options in tripOptions.values() for option in options]
+    sheets_handler.get_sheet(config.RESULT_SHEET_ID).get_worksheet('singles').add_rows(rows=rows)
         
     state.logger.info("Top N round trips written to Google Sheet successfully")
     state.update_flag('sentToGoogleSheets')
 
-    def format_whatsapp_posts(posts: list[str]) -> str:
-        return "\n\n".join(posts)
+    pdfs = [generate_pdf_for_single_trips(option, option.release_date) for options in tripOptions.values() for option in options]
 
+    #TODO: whatsapp_post no longer exists in TripOption,, figure out a work around. 
     email_self(
         subject=f"{date.today()} - {date.today() + timedelta(days=n - 1)} Top {n} Combos de Voos Single",
         body=f"\
                 Attached are the top N combos of flights.\n \
                 Whatsapp Posts:\n \
-                {format_whatsapp_posts([option.whatsapp_post for option in tripOptions])} \
+                {format_whatsapp_posts(opt.whatsapp_post for opts in tripOptions.values() for opt in opts)} \
                 \n\nThis email was sent automatically by the flight alert system.",
         attachments=pdfs
     )
     state.update_flag('emailSent')
-    state.logger.info("Email sent successfully with attached PDFs")
 
-    return pdfs
+    clear_pdfs(*pdfs)
 
-
-def broadcast_round_flights(roundTripOptions: list[RoundTripOptions], n: int) -> list[PDF_OBJ]:
+def broadcast_round_flights(options: FlightOptions, n: int) -> None:
     """
     Generate marketing content, PDFs, store data, and email reports for flight options.
     This function processes the formatted RoundTripOptions to generate WhatsApp
@@ -620,41 +657,34 @@ def broadcast_round_flights(roundTripOptions: list[RoundTripOptions], n: int) ->
     """
     state.logger.info("Starting broadcast of flight options")
 
-    pdfs = [generate_pdf(option, option.release_date) for option in roundTripOptions]
-    state.logger.info("PDFs generated successfully")
-    results_sheet_id = config.RESULT_SHEET_ID
-    for option in roundTripOptions:
-        rows_len = len(option.roundTrips)
-        sheets_handler.get_sheet(
-            results_sheet_id
-        ).create_worksheet(
-            worksheet_name=f"{option.cabin}: {option.release_date} - {option.origin_city}({option.origin_country}) to {option.destination_city}({option.destination_country})",
-        rows_n=rows_len,
-        cols_n=len(HEADERS),
-        headers=HEADERS
-    ).add_rows(
-        rows=[
-            round_trip.to_row() for round_trip in option.roundTrips
-        ]
-    ).add_row(
-        row=[
-            "selling_price",
-            option.selling_price
-        ]
-    )
-        
+    singles_rows = [options.single_trips[i].to_row() for i in range(len(options.single_trips))]
+    singles_rounds_relation_rows = [options.round_trips[i].to_row() for i in range(len(options.round_trips))]
+    round_rows = [options.round_options[i].to_row() for i in range(len(options.round_options))]
+
+    state.logger.info(f"FINISHED Prepared {len(singles_rows)} single trip rows for Google Sheet")
+    state.logger.info(f"FINISHED Prepared {len(singles_rounds_relation_rows)} single-round relation rows for Google Sheet")
+    state.logger.info(f"FINISHED Prepared {len(round_rows)} round trip rows for Google Sheet")
+    
+    sheets_handler.get_sheet(config.RESULT_SHEET_ID).get_worksheet('singles').add_rows(rows=singles_rows)  
+    state.logger.info(f"Added {len(singles_rows)} single trip rows to Google Sheet")
+
+    sheets_handler.get_sheet(config.RESULT_SHEET_ID).get_worksheet('singles_rounds_relational').add_rows(rows=singles_rounds_relation_rows)
+    state.logger.info(f"Added {len(singles_rounds_relation_rows)} single-round relation rows to Google Sheet")
+
+    sheets_handler.get_sheet(config.RESULT_SHEET_ID).get_worksheet('rounds').add_rows(rows=round_rows)
+    state.logger.info(f"Added {len(round_rows)} round trip rows to Google Sheet")
     state.logger.info("Top N round trips written to Google Sheet successfully")
     state.update_flag('sentToGoogleSheets')
-
-    def format_whatsapp_posts(posts: list[str]) -> str:
-        return "\n\n".join(posts)
-
+    '''
+    pdfs = [generate_pdf_for_round_trips(option, option.release_date) for option in options]
+    state.logger.info("PDFs generated successfully")
+        
     email_self(
         subject=f"{date.today()} - {date.today() + timedelta(days=n - 1)} Top {n} Combos de Voos Round",
         body=f"\
                 Attached are the top N combos of flights.\n \
                 Whatsapp Posts:\n \
-                {format_whatsapp_posts([option.whatsapp_post for option in roundTripOptions])} \
+                {format_whatsapp_posts([option.whatsapp_post for option in options])} \
                 \n\nThis email was sent automatically by the flight alert system.",
         attachments=pdfs
     )
@@ -662,8 +692,9 @@ def broadcast_round_flights(roundTripOptions: list[RoundTripOptions], n: int) ->
     state.logger.info("Email sent successfully with attached PDFs")
 
     return pdfs
+    '''
 
-def clear_round(options: list[RoundTripOptions]) -> None:
+def clear_round(options: list[Route]) -> None:
     """
     Clean up temporary files used in the flight alert process.
     
@@ -678,6 +709,28 @@ def clear_round(options: list[RoundTripOptions]) -> None:
         None
     """
     state.logger.info("Cleaning up temporary files")
+
+    for option in options:
+        for image in option.images:
+            if image and image.filePath and os.path.exists(image.filePath):
+                os.remove(image.filePath)
+
+    return
+
+def clear_single(options: list[TripOption]) -> None:
+    """
+    Clean up temporary files used in the flight alert process for single trip options.
+
+    This function deletes any temporary images and PDF files generated
+    during the flight alert pipeline to prevent server overload.
+
+    Args:
+        options (list[TripOption]): List of TripOption containing image references
+
+    Returns:
+        None
+    """
+    state.logger.info("Cleaning up temporary files for single trips")
 
     for option in options:
         for image in option.images:
@@ -706,3 +759,6 @@ def clear_pdfs(*pdfs: PDF_OBJ) -> None:
             os.remove(pdf.filePath)
     
     return
+
+def format_whatsapp_posts(posts: list[str]) -> str:
+        return "\n\n".join(posts)

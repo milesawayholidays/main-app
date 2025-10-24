@@ -100,7 +100,6 @@ class GLOBAL_STATE:
         """
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M")
         self.mainModInitialized = False
-        self.googleDriveModInitialized = False
         self.configInitialized = False
         self.cashModInitialized = False
         self.mileageModInitialized = False
@@ -202,7 +201,6 @@ class GLOBAL_STATE:
                 'configInitialized': getattr(self, 'configInitialized', False),
                 'cashModInitialized': getattr(self, 'cashModInitialized', False),
                 'mileageModInitialized': getattr(self, 'mileageModInitialized', False),
-                'googleDriveModInitialized': getattr(self, 'googleDriveModInitialized', False),
                 'googleSheetsModInitialized': getattr(self, 'googleSheetsModInitialized', False),
                 'openAIHandlerInitialized': getattr(self, 'openAIHandlerInitialized', False),
                 'seatsAeroHandlerInitialized': getattr(self, 'seatsAeroHandlerInitialized', False),

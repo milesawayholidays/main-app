@@ -25,7 +25,8 @@ class summary_trip:
         distance (int): Distance of the trip in kilometers
     """
     ID: str
-    city: str
+    origin_city: str
+    destination_city: str
     totalCost: int
     distance: int
 

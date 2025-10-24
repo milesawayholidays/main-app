@@ -66,12 +66,19 @@ class OPENAI_Handler:
         self.client = OpenAI(api_key=api_key)
 
     def generateWhatsAppPost(self,
-                           origin: str, 
-                           destination: str, 
+                           origin_city: str, 
+                           origin_country: str,
+                           destination_city: str,
+                           destination_country: str,
                            departure_dates: list[str], 
                            return_dates: list[str], 
                            cabin: str, 
-                           selling_price: str) -> str:
+                           miles_cost: str,
+                           taxes: str,
+                           source: str,
+                           selling_price: str,
+                           remaining_seats: str,
+                           booking_link: str) -> str:
         """
         Generate a compelling WhatsApp post for flight deal promotion.
         
@@ -106,43 +113,45 @@ class OPENAI_Handler:
             
         Example:
             >>> handler.generateWhatsAppPost(
-            ...     origin="São Paulo(Brazil)",
-            ...     destination="Paris(France)", 
+            ...     origin_city="São Paulo",
+            ...     origin_country="Brasil",
+            ...     destination_city="Paris",
+            ...     destination_country="França",
             ...     departure_dates=["2025-08-15", "2025-08-20"],
             ...     return_dates=["2025-08-25", "2025-08-30"],
-            ...     cabin="W",
+            ...     cabin="Premium",
             ...     selling_price="R$ 3.500,00 (BRL)"
             ... )
             "🌟 OFERTA EXCLUSIVA - Paris te espera! ✈️..."
+
         """
-        # Parse origin and destination to extract city and country
-        origin_parts = origin.split('(')
-        origin_city = origin_parts[0]
-        origin_country = origin_parts[1].rstrip(')') if len(origin_parts) > 1 else ''
-        
-        destination_parts = destination.split('(')
-        destination_city = destination_parts[0]
-        destination_country = destination_parts[1].rstrip(')') if len(destination_parts) > 1 else ''
 
         prompt = f"\
-          Crie um post para um grupo de alertas de viagens no Whatsapp. Seja bem enfático na urgência e \
-          exclusividade da oferta e dê seu melhor para convencer o leitor a comprar. \
-          Adicionalmente, avise que caso o leitor tenha interesse apenas em uma viagem de ida, que estamos a disposição para negociar.\
-          O nome da nossa empresa é 'MilesAway Holidays'. \
+          Crie um único post para um grupo de alertas de viagens no Whatsapp. Seja bem enfático na urgência e \
+          exclusividade da oferta e dê seu melhor para convencer o leitor a comprar. \n\
           \n\
-          Observação: Se houver apenas uma data de ida e nenhuma de volta, o post deve ser adaptado para uma viagem de ida, mantendo o tom de urgência e exclusividade.\
-          \n\
-          O post deve conter as seguintes informações (não necessáriamente nesta formatação): \
-          Origem: {origin_city} - {origin_country} \
-          Destino: {destination_city} - {destination_country} \
+          O post DEVE conter as seguintes informações escritas em uma formatação variada e fluida: \
+          De: {origin_city} - {origin_country} \
+          Para: {destination_city} - {destination_country} \
           Cabine: {cabin} \
-          Datas de ida: {', '.join(departure_dates)} \
-          Datas de volta: {', '.join(return_dates)} \
-          Valor de venda: {selling_price} \
+          Datas de ida: {', '.join(str(departure_dates))} \
+          Datas de volta: {', '.join(str(return_dates))} \
+          Emissora: {source} \
+          Custo: {miles_cost} + {taxes} \
+          Valor comprando conosco: {selling_price} \
+          Assentos disponíveis: {remaining_seats} \
+          Link de Emissão: {booking_link} \
           \n\
-          O post deve conter emojis, só não exager. Também não coloque hashtags ou outros caracteres que possam atrapalhar a leitura para deficientes visuais e demais \
+          REGRAS: \
+          1. PROIBIDO HASHTAGS \n\
+          2. PROIBIDO CARACTERES QUE NÃO SÃO AMPLAMENTE ACEITOS POR PADRÕES DE USO COMUM OU QUE POSSAM ATRAPALHAR A LEITURA \n\
+          3. DEVE TER ALGUNS EMOJIS PARA EXPRESSAR TONALIDADE \n\
+          4. SE NÃO HOUVER DATAS DE VOLTA, ASSUMA QUE A VIAGEM É DE IDA SOMENTE E ADAPTE O TEXTO CONFORME. \
+          5. COLOQUE AS INFORMAÇÕES LISTADAS DE FORMA CLARA E ORGÂNICA \
+          6. OMITA QUALQUER INFORMAÇÃO QUE VOCÊ RECEBER VAZIA (Como data de volta ou taxas) \
+          7. ALGUMAS INFORMAÇÕES PODEM SER CENSURADAS POR UM OPERADOR HUMANO, ENTÃO FAÇA MENÇÃO DE QUE HÁ UM GRUPO PREMIUM ONDE ESSAS INFORMAÇÕES EXISTEM \
           \n\
-          Matenha um tom profissional, mas amigável e acessível. Seja breve e direto, não ultrapasse 200 palavras. \
+          Mantenha um tom profissional, mas amigável e acessível. Seja breve e direto, não ultrapasse 200 palavras. \
           \n\
           O post deve conter uma chamada para ação, como \"Entre em contato para mais informações!\""
 
@@ -152,7 +161,7 @@ class OPENAI_Handler:
                 {"role": "user", "content": prompt}
             ],
             max_tokens=300,
-            temperature=0.7
+            temperature=0.9
         )
 
         if response and response.choices and len(response.choices) > 0:

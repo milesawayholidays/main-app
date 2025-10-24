@@ -29,9 +29,10 @@ Data Structure:
 import gspread
 from google.oauth2.service_account import Credentials
 
-from ..global_state import state
-
-from ..services.google_drive import handler as drive_handler
+try:
+    from ..global_state import state
+except ImportError:
+    from global_state import state
 
 # Standard headers for flight data export
 HEADERS = [
@@ -275,41 +276,6 @@ class GoogleSheetsHandler:
         """
         spreadsheet = self.client.open_by_key(spreadsheet_id)
         return SpreadSheet(spreadsheet, spreadsheet.title)
-
-    def create_sheet(self, spreadsheet_name: str, folder_id: str) -> SpreadSheet:
-        """
-        Create a new Google Spreadsheet with the specified name.
-        
-        Creates a new spreadsheet in the authenticated Google account
-        and returns its unique ID for further operations.
-        
-        Args:
-            spreadsheet_name (str): Name for the new spreadsheet
-            folder_id (str): ID of the Google Drive folder to create the spreadsheet in 
-            
-        Returns:
-            str: Unique ID of the created spreadsheet
-            
-        Raises:
-            Exception: Re-raises any Google Sheets API errors that occur
-                during spreadsheet creation
-                
-        Note: 
-            - Spreadsheet is created with default worksheet
-            - Returns ID needed for subsequent operations
-            - Logs creation success for tracking
-        """
-        try:
-            spreadsheetId = drive_handler.create_file(
-                file_name=spreadsheet_name,
-                mime_type='application/vnd.google-apps.spreadsheet',
-                folder_id=folder_id
-            )
-            state.logger.info(f"Spreadsheet '{spreadsheet_name}' created successfully.")
-            return SpreadSheet(self.get_sheet(spreadsheetId), spreadsheet_name)
-        except Exception as e:
-            state.logger.error(f"Failed to create spreadsheet: {e}")
-            raise e
     
 
     

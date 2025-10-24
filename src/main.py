@@ -46,7 +46,6 @@ from global_state import state
 from currencies.cash import handler as cash_handler
 from currencies.mileage import handler as mileage_handler
 
-from services.google_drive import handler as drive_handler
 from services.google_sheets import handler as google_sheets_handler
 from services.openAI import handler as openai_handler
 from services.seats_aero import seats_aero_handler as seats_aero_handler
@@ -93,8 +92,6 @@ def setup():
     state.update_flag('mainModInitialized')
     config.load()
     state.update_flag('configInitialized')
-    drive_handler.load()
-    state.update_flag('googleDriveModInitialized')
     google_sheets_handler.load(config.GOOGLE_SERVICE_ACCOUNT)
     state.update_flag('googleSheetsModInitialized')
     openai_handler.load(config.OPENAI_API_KEY)
@@ -105,7 +102,7 @@ def setup():
     state.update_flag('cashModInitialized')
     mileage_handler.load(mileage_spreadsheet_id=config.MILEAGE_SPREADSHEET_ID, mileage_worksheet_name=config.MILEAGE_WORKSHEET_NAME)
     state.update_flag('mileageModInitialized')
-    clickmassa_handler.load(config.CLICKMASSA_ID, config.CLICKMASSA_USERS)
+    clickmassa_handler.load(config.CLICKMASSA_TOKEN, config.CLICKMASSA_ID)
     state.update_flag('clickmassaHandlerInitialized')
 
     state.logger.info("All modules initialized successfully.")

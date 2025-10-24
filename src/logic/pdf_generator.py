@@ -18,7 +18,7 @@ from fpdf import FPDF
 
 from global_state import state
 
-from logic.trip_builder import RoundTripOptions, RoundTrip
+from logic.trip_builder import Trip, RoundTrip, Route, TripOption
 
 from data_types.pdf_types import PDF_OBJ
 
@@ -68,8 +68,8 @@ class PDF(FPDF):
         state.logger.info(f"Adding round trip: {round_trip.outbound.origin_airport} to {round_trip.outbound.destination_airport}")
         self.set_font("Arial", "", 12)
         normal_selling_price = round_trip.normal_selling_price_to_str()
-        self.cell(0, 10, f"Outbound: {round_trip.outbound.departure} - {round_trip.outbound.origin_airport} to {round_trip.outbound.destination_airport}", 0, 1)
-        self.cell(0, 10, f"Return: {round_trip.return_.departure} - {round_trip.return_.origin_airport} to {round_trip.return_.destination_airport}", 0, 1)
+        self.cell(0, 10, f"Outbound: {round_trip.outbound.departure_date} - {round_trip.outbound.origin_airport} to {round_trip.outbound.destination_airport}", 0, 1)
+        self.cell(0, 10, f"Return: {round_trip.return_.departure_date} - {round_trip.return_.origin_airport} to {round_trip.return_.destination_airport}", 0, 1)
         self.cell(0, 10, f"Source: {source}", 0, 1)
         self.cell(0, 10, f"Selling Price: {normal_selling_price}", 0, 1)
 
@@ -87,8 +87,77 @@ class PDF(FPDF):
         self.ln(5)
         return
 
+    def add_single_trip(self, trip: TripOption, source) -> None: 
+        '''
+        Add trip information to the PDF.
+        
+        Formats and adds complete  trip details including outbound
+        and return flight information, source, pricing, and booking links
+        to the current page position.
+        
+        Args:
+            round_trip (Trip): The  trip object containing
+                outbound and return flight details
+            source: The airline source/program for the trip
+            
+        Note:
+            - Adds flight departure times and airport codes
+            - Includes selling price in cents
+            - Provides booking links for both flights
+            - Adds spacing after the trip information
+        '''
+        self.set_font("Arial", "", 12)
+        self.cell(0, 10, f"Outbound: {str(trip.departure_date)} - {trip.origin_airport} to {trip.destination_airport}", 0, 1)
+        self.cell(0, 10, f"Return: {str(trip.arrival_date)} - {trip.origin_airport} to {trip.destination_airport}", 0, 1)
+        self.cell(0, 10, f"Source: {source}", 0, 1)
+        self.cell(0, 10, f"Selling Price: {trip.selling_price_to_str()}", 0, 1)
 
-def generate_pdf(roundTripOptions: RoundTripOptions, title: str) -> PDF_OBJ:
+        # Add booking links
+        self.cell(0, 10, "Booking Links:", 0, 1)
+        self.write(5, "\n".join(trip.booking_links))
+
+        self.ln(5)
+        return
+
+def generate_pdf_for_single_trips(tripOption: TripOption, title: str) -> PDF_OBJ:
+    '''
+    Generate a PDF report for a list of single trip options.
+
+    Args:
+        tripOptions (list[TripOption]): The list of trip options to include in the report.
+        title (str): The title for the PDF document.
+
+    Returns:
+        PDF_OBJ: The generated PDF object.
+    '''
+
+    state.logger.info(f"Generating PDF for {title}")
+
+    pdf = PDF()
+    pdf.title = f"{title}"
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    pdf.add_single_trip(tripOption, tripOption.source)
+    pdf.add_page()
+    for image in tripOption.images:
+        pdf.add_page()
+        pdf.cell(0, 10, f"url: {image.url}", 0, 1)
+        pdf.image(image.filePath, w=pdf.w - 20)
+
+    import os
+    if not os.path.exists(DEFAULT_FOLDER):
+        os.makedirs(DEFAULT_FOLDER)
+
+    filePath = os.path.join(DEFAULT_FOLDER, title.replace(" ", "_") + ".pdf")
+    pdf.output(filePath)
+    # Return PDF
+    return PDF_OBJ(
+        title=title,
+        filePath=filePath
+    )
+
+def generate_pdf_for_round_trips(roundTripOptions: Route, title: str) -> PDF_OBJ:
     """
     Generate a complete PDF report for flight alert round trip options.
     
@@ -119,7 +188,6 @@ def generate_pdf(roundTripOptions: RoundTripOptions, title: str) -> PDF_OBJ:
     pdf.title = f"{title}"
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
-    pdf.cell(0, 10, f"top 5 voos {roundTripOptions.cabin} de {roundTripOptions.origin_city}-{roundTripOptions.origin_country} para {roundTripOptions.destination_city}-{roundTripOptions.destination_country}", 0, 1, "C")
 
     for round_trip in roundTripOptions.roundTrips:
         pdf.add_round_trip(round_trip, roundTripOptions.source)

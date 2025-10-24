@@ -32,7 +32,6 @@ Configuration Categories:
 
 import os
 import pandas as pd
-from dotenv import load_dotenv
 import json
 
 
@@ -169,6 +168,7 @@ class Config:
         """
         if os.getenv("MODE") != "production":
             print("Loading environment variables from .env file...")
+            from dotenv import load_dotenv
             success = load_dotenv()
             if not success:
                 raise Exception("Failed to load environment variables from .env file.")
@@ -195,7 +195,7 @@ class Config:
             self.GOOGLE_SERVICE_ACCOUNT = None
         self.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
         self.GOOGLE_EMAIL = os.getenv("GOOGLE_EMAIL")
-        self.GOOGLE_PASS = os.getenv("GOOGLE_PASS")
+        self.SEND_GRID_EMAIL = os.getenv("SEND_GRID_EMAIL")
         self.SEATS_AERO_API_KEY = os.getenv("SEATS_AERO_API_KEY")
         self.UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY")
         self.EXCHANGE_RATE_API_KEY = os.getenv("EXCHANGE_RATE_API_KEY")
@@ -203,13 +203,7 @@ class Config:
         self.MILEAGE_WORKSHEET_NAME = os.getenv("MILEAGE_WORKSHEET_NAME")
         self.CLICKMASSA_TOKEN = os.getenv("CLICKMASSA_TOKEN")
         self.CLICKMASSA_ID = os.getenv("CLICKMASSA_ID")
-        
-        clickmassa_users_str = os.getenv("CLICKMASSA_USERS", "{}")
-        try:
-            self.CLICKMASSA_USERS = json.loads(clickmassa_users_str)
-        except json.JSONDecodeError as e:
-            print(f"Error parsing CLICKMASSA_USERS JSON: {e}")
-            self.CLICKMASSA_USERS = None
+        self.SEND_GRID_API_KEY = os.getenv("SEND_GRID_API_KEY")
 
         self.RESULT_SHEET_ID = os.getenv("RESULT_SHEET_ID")
 
@@ -242,7 +236,7 @@ class Config:
             ("CREDIT_CARD_FEE", self.CREDIT_CARD_FEE),
             ("OPENAI_API_KEY", self.OPENAI_API_KEY),
             ("GOOGLE_EMAIL", self.GOOGLE_EMAIL),
-            ("GOOGLE_PASS", self.GOOGLE_PASS),
+            ("SEND_GRID_EMAIL", self.SEND_GRID_EMAIL),
             ("SEATS_AERO_API_KEY", self.SEATS_AERO_API_KEY),
             ("UNSPLASH_ACCESS_KEY", self.UNSPLASH_ACCESS_KEY),
             ("EXCHANGE_RATE_API_KEY", self.EXCHANGE_RATE_API_KEY),
@@ -250,7 +244,7 @@ class Config:
             ("MILEAGE_WORKSHEET_NAME", self.MILEAGE_WORKSHEET_NAME),
             ("CLICKMASSA_TOKEN", self.CLICKMASSA_TOKEN),
             ("CLICKMASSA_ID", self.CLICKMASSA_ID),
-            ("CLICKMASSA_USERS", self.CLICKMASSA_USERS),
+            ("SEND_GRID_API_KEY", self.SEND_GRID_API_KEY),
             ("RESULT_SHEET_ID", self.RESULT_SHEET_ID),
             ("CITY_IATA", self.IATA_CITY),
             ("CITY_COUNTRY", self.IATA_COUNTRY),

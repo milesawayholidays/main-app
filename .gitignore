@@ -1,0 +1,12 @@
+venv/
+__pycache__/
+*.pyc
+.env
+sheets_api_key.json
+logs/
+data/
+test_results/
+pdfs/
+images/
+*output_*.txt
+

@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info
+
+# Env & build
+venv/
+*.env
+.env
+
+# Git
+.git/
+.gitignore
+
+# OS/system
+.DS_Store
+
+# Logs & data
+*.log
+logs/
+*.sqlite3
+
+# Docs
+docs/
+README.md
+
+# Tests
+test/
+**/test*.py
+**/output_*.txt

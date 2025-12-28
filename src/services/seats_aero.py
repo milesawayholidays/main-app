@@ -26,13 +26,12 @@ API Endpoints:
 - Trip Availability: Get detailed information for specific trips
 """
 
-from time import sleep
 import requests
 
 from global_state import state
 
 from data_types.enums import REGION, SOURCE, CABIN
-
+from data_types.Flight import Availability
 
 class SeatsAeroHandler:
     """
@@ -148,113 +147,105 @@ class SeatsAeroHandler:
             state.logger.error(f"Failed to fetch cached search: {response.status_code} - {response.text}")
             raise ValueError(f"Failed to fetch cached search: {response.status_code} - {response.text}")
 
-    def fetch_bulk_availability(self, source: SOURCE, 
-                                origin_region: REGION, 
-                                destination_region: REGION, 
-                                start_date: str = None, 
-                                end_date: str = None, 
-                                deepness: int = 1,
-                                cabin: CABIN = None) -> list:
-        """
-        Fetch bulk flight availability data across regions and sources.
-        
-        Retrieves large volumes of flight availability data filtered by airline
-        source, cabin classes, date range, and geographical regions. This method
-        is optimized for processing multiple flights across broad criteria.
-        
-        Args:
-            source (SOURCE): Airline source enum (e.g., SOURCE.SMILES, SOURCE.AZUL)
-            cabins (list): List of cabin class codes (e.g., ['Y', 'W'])
-            start_date (str): Search start date in YYYY-MM-DD format (optional)
-            end_date (str): Search end date in YYYY-MM-DD format (optional)
-            origin_region (REGION): Origin region enum (e.g., REGION.SOUTH_AMERICA)
-            destination_region (REGION): Destination region enum (e.g., REGION.EUROPE)
-            deepness (int): Pagination depth for results (default: 1)
-            
-        Returns:
-            list: list containing bulk availability data from API response,
-                or empty list if request fails or parameters are invalid
-                
-        Note:
-            - Returns empty list instead of raising exceptions for missing params
-            - Logs request parameters for debugging
-            - Handles API errors gracefully with empty dict return
-            - Designed for high-volume data processing
-            - Uses enum values for consistent parameter formatting
-        """
-        state.logger.info(f"Fetching bulk availability for source: {source.value}, "
-                          f"origin_region: {origin_region.value}, destination_region: {destination_region.value}, "
-                          f"start_date: {start_date}, end_date: {end_date}, deepness: {deepness}")
-        if not all([source, origin_region, destination_region]):
-            return []  # Return empty list if any parameter is missing
+    def fetch_bulk_availability(
+        self,
+        source: str,
+        origin_region: str,
+        destination_region: str,
+        start_date: str = None,
+        end_date: str = None,
+        deepness: int = 1,
+        cabin: str = None
+    ) -> list[Availability]:
 
+        state.logger.info(
+            f"Fetching bulk availability for "
+            f"{source}/{origin_region} → {destination_region}, deepness={deepness}"
+        )
+
+        if not all([source, origin_region, destination_region]):
+            return []
+
+        # Build base params
         params = {
-            "source": source.value,
-            "origin_region": origin_region.value,
-            "destination_region": destination_region.value,
-            "cabin": cabin.value if cabin else None,
-            "take": 1000
+            "source": source,
+            "origin_region": origin_region,
+            "destination_region": destination_region,
+            "cabin": cabin if cabin else None,
+            "take": 1000,
+            "include_filtered": "true"
         }
 
-        if start_date is not None and start_date != "":
+        if start_date:
             params["start_date"] = start_date
-        if end_date is not None and end_date != "":
-            params["end_date"] = end_date       
+        if end_date:
+            params["end_date"] = end_date
 
-            
-        state.logger.info(f"Fetching bulk availability with params: {params}")
+        all_items_raw: list[dict] = []
+        cursor = None
 
-        # Initialize response variables
-        response = None
-        responseJson = None
-        all_data = []
-        seen_ids = set()  # Track IDs to avoid duplicates
-
-        for i in range(1, deepness + 1):
-            # Call the api   
+        for _ in range(deepness):
             response = requests.get(self.bulk_availability_url, headers=self.headers, params=params)
-
-            if response.status_code == 200:
-                responseJson = response.json()
-                current_data = responseJson.get("data", [])
-                
-                # Deduplicate by ID as recommended by API documentation
-                new_data = []
-                for item in current_data:
-                    item_id = item.get("ID")
-                    if item_id and item_id not in seen_ids:
-                        seen_ids.add(item_id)
-                        new_data.append(item)
-                
-                all_data.extend(new_data)
-                
-                state.logger.info(f"Bulk availability fetched successfully for source: {source.value}. Found {len(current_data)} results, {len(new_data)} unique.")
-
-                # Check if there are more results to fetch
-                hasMore = responseJson.get("hasMore", False)
-                cursor = responseJson.get("cursor", None)
-                
-                if hasMore and cursor:
-                    # Update cursor for next request
-                    params["cursor"] = cursor
-                    # Update skip to the total number of results we've processed
-                    params["skip"] = len(all_data)
-                    state.logger.info(f"Continuing to fetch more results with cursor: {cursor} and skip: {params['skip']}")
-                else:
-                    # No more data to fetch
-                    break
-            else:
-                state.logger.error(f"Failed to fetch bulk availability: {response.status_code} - {response.text}")
+            if response.status_code != 200:
+                state.logger.error(f"Bulk availability failed: {response.status_code} - {response.text}")
                 break
 
-        
-        if response and response.status_code == 200 and all_data:
-            state.logger.info(f"Bulk availability fetched successfully with {len(all_data)} unique results.")
-            return all_data
-        # If no data was fetched, log the error and return empty list
-        else:
-            state.logger.error(f"Failed to fetch bulk availability: {response.status_code} - {response.text}")
-            return []  # Return empty list if the request fails
+            data_json = response.json()
+            page_items = data_json.get("data", [])
+
+            all_items_raw.extend(page_items)
+
+            # Pagination
+            hasMore = data_json.get("hasMore", False)
+            cursor = data_json.get("cursor")
+            if not (hasMore and cursor):
+                break
+
+            # Update params for next page
+            params["cursor"] = cursor
+            params["skip"] = len(all_items_raw)
+
+        if not all_items_raw:
+            return []
+
+        # Deduplication AFTER all pages
+        unique_items = {item["ID"]: item for item in all_items_raw if item.get("ID")}
+        state.logger.info(f"Fetched {len(all_items_raw)} items → {len(unique_items)} unique")
+
+        # Build Availability objects only once
+        results: list[Availability] = []
+        for item in unique_items.values():
+            route = item.get("Route", {})
+            results.append(Availability(
+                ID=item.get("ID"),
+                origin_airport=route.get("OriginAirport"),
+                destination_airport=route.get("DestinationAirport"),
+                source=source,
+                date=item.get("Date"),
+                y_available=item.get("YAvailable"),
+                w_available=item.get("WAvailable"),
+                j_available=item.get("JAvailable"),
+                f_available=item.get("FAvailable"),
+                y_mileage=item.get("YMileageCostRaw"),
+                w_mileage=item.get("WMileageCostRaw"),
+                j_mileage=item.get("JMileageCostRaw"),
+                f_mileage=item.get("FMileageCostRaw"),
+                taxes_currency=item.get("TaxesCurrency"),
+                y_taxes=item.get("YTotalTaxesRaw"),
+                w_taxes=item.get("WTotalTaxesRaw"),
+                j_taxes=item.get("JTotalTaxesRaw"),
+                f_taxes=item.get("FTotalTaxesRaw"),
+                y_remaining_seats=item.get("YRemainingSeatsRaw"),
+                w_remaining_seats=item.get("WRemainingSeatsRaw"),
+                j_remaining_seats=item.get("JRemainingSeatsRaw"),
+                f_remaining_seats=item.get("FRemainingSeatsRaw"),
+                created_at=item.get("CreatedAt"),
+                updated_at=item.get("UpdatedAt"),
+                provider="seats.aero"
+            ))
+
+        return results
+
 
     def fetch_availability(self, trip_id) -> dict:
         """

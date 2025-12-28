@@ -557,8 +557,13 @@ def format_availability_object(availabilityObject: dict, region: str) -> Trip:
         - Combines multiple booking links with commas
         - Uses segment source for airline identification
     """
-    if not availabilityObject or len(availabilityObject) == 0 or "data" not in availabilityObject or len(availabilityObject["data"]) == 0:
+    print(availabilityObject)
+    if availabilityObject is None or not availabilityObject or len(availabilityObject) == 0:
         state.logger.error("Availability object is empty.")
+        return None
+    
+    if "data" not in availabilityObject or not availabilityObject["data"] or availabilityObject["data"] is None:
+        state.logger.error("Availability object 'data' field is empty.")
         return None
     
     '''

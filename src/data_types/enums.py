@@ -20,6 +20,16 @@ class SOURCE(Enum):
     SMILES = "smiles"      # Smiles (GOL) loyalty program  
     QANTAS = "qantas"        # Qantas Airways loyalty program
 
+    @classmethod
+    def get_source_values(cls):
+        """
+        Get a list of all source values.
+        
+        Returns:
+            List[str]: List of source values
+        """
+        return ["azul", "smiles", "qantas"]
+
 
 class REGION(Enum):
     """
@@ -81,6 +91,25 @@ class REGION(Enum):
         
         raise ValueError(f"Region '{region_name}' not found in REGION enum.")
 
+    @classmethod
+    def get_region_values(cls):
+        """
+        Get a list of all region values.
+        
+        Returns:
+            List[str]: List of region names
+        """
+        return ["North America", "South America", "Africa", "Asia", "Europe", "Oceania"]
+    
+    @classmethod
+    def get_region_names(cls):
+        """
+        Get a list of all region enum names.
+        
+        Returns:
+            List[str]: List of region enum names
+        """
+        return ["NA", "SA", "AF", "AS", "EU", "OC"]
 class CABIN(Enum):
     """
     Enum for airline cabin classes.
@@ -88,7 +117,10 @@ class CABIN(Enum):
     Uses standard IATA cabin class codes to represent different
     service levels on flights.
     """
-    Y = "economy"     # Economy/Coach class
-    W = "premium"  # Premium Economy class
-    J = "business"    # Business class
-    F = "first"       # First class
+    y = "economy"     # Economy/Coach class
+    w = "premium"  # Premium Economy class
+    j = "business"    # Business class
+    f = "first"       # First class
+
+class PROVIDER(str, Enum):
+    SEATS_AERO = "seats.aero"

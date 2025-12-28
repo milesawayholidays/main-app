@@ -34,6 +34,8 @@ import os
 import pandas as pd
 import json
 
+from data_types.cities import AIRPORT_TIER
+
 
 class Config:
     """
@@ -227,7 +229,12 @@ class Config:
         self.IATA_LATITUDE = df.set_index("IATA")["Latitude"].to_dict()
         self.IATA_LONGITUDE = df.set_index("IATA")["Longitude"].to_dict()
         self.COUNTRY_REGION = df.set_index("Country")["Region"].to_dict()
-        
+
+        biased_airports = os.getenv("BIASED_AIRPORTS", "").split(",")
+        for airport in biased_airports:
+            AIRPORT_TIER[airport.strip()] = "System-Biased-Cities"
+            
+
         # Assert required environment variables
         assert_env_vars(
             ("CURRENCY", self.CURRENCY),

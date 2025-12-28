@@ -7,6 +7,7 @@ It includes error handling for invalid inputs and API failures.
 It is part of a larger system that manages flight alerts and related services.
 '''
 import requests
+import numpy as np
 
 try:
     from ..global_state import state
@@ -116,6 +117,26 @@ class CashHandler:
         
         return amount_in_cents * rate // 100
 
+    def convert_to_system_base_vectorised(self, amounts_in_cents: list[int], base_currencies: list[str]) -> np.ndarray:
+        """
+        Convert a list of amounts in cents from their respective base currencies to the target currency.
+        Args:
+            amounts_in_cents (list[int]): The list of amounts in cents to convert.
+            base_currencies (list[str]): The list of currencies corresponding to each amount.
+        Returns:
+            np.ndarray: An array of converted amounts in cents in the target currency.
+        Raises:
+            ValueError: If base_currency is not found in the exchange rates.
+        """
+        if len(amounts_in_cents) != len(base_currencies):
+            state.logger.error("Amounts and base currencies lists must have the same length.")
+            raise ValueError("Amounts and base currencies lists must have the same length.")
+        
+        arr = np.asarray(amounts_in_cents, dtype=np.int64)
+        vectorised_fn = np.vectorize(lambda x, y: self.convert_to_system_base(int(x), y))
+
+        return vectorised_fn(arr, base_currencies)
+    
 handler = CashHandler()
 
 def cents_to_str(cents: int, currency_symbol: str, currency_title: str) -> str:

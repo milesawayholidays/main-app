@@ -2,12 +2,15 @@ ENV_FILE := .env
 PYTHON := python3
 VENV_DIR := venv
 ACTIVATE := . $(VENV_DIR)/bin/activate
+VENV_PYTHON := $(VENV_DIR)/bin/python
 DATA_DIR := data
 TEST_DIR := test
 AIRPORTS_URL := https://davidmegginson.github.io/ourairports-data/airports.csv
 DOCKERPROJECT := alertsmilesaway/main-app
 
-.PHONY: help download-data create-logs setup_venv activate_venv install-locally local-setup run run-a install-deploy deploy-setup deploy docker-image run-docker stop-docker test-clear test test-verbose clean
+.PHONY: help download-data create-logs setup_venv activate_venv install-locally local-setup run run-a \
+	backend-dev backend-run frontend-install frontend-dev frontend-build frontend-preview dev \
+	install-deploy deploy-setup deploy docker-image run-docker stop-docker test-clear test test-verbose clean
 
 # General Commands
 
@@ -21,6 +24,13 @@ help:
 	@echo "  make local-setup         - Set up local environment and run main script"
 	@echo "  make run                 - Run the main script with setup"
 	@echo "  make run-a               - Run the main script without setup"
+	@echo "  make backend-dev         - Run FastAPI backend locally (reload, :4000)"
+	@echo "  make backend-run         - Run FastAPI backend locally (no reload, :4000)"
+	@echo "  make frontend-install    - Install frontend deps (npm)"
+	@echo "  make frontend-dev        - Run React frontend locally (Vite)"
+	@echo "  make frontend-build      - Build React frontend"
+	@echo "  make frontend-preview    - Preview built frontend"
+	@echo "  make dev                 - Run backend + frontend together (parallel)"
 	@echo "  make install-deploy      - Install dependencies for deployment"
 	@echo "  make deploy-setup        - Prepare for deployment"
 	@echo "  make deploy              - Deploy the application"
@@ -64,6 +74,37 @@ run: local-setup
 
 run-a: 
 	$(PYTHON) src/main.py
+
+# New Local Dev (React + FastAPI)
+
+backend-dev:
+	@echo "Starting FastAPI backend on http://localhost:4000 (reload enabled)"
+	@$(ACTIVATE) && $(VENV_PYTHON) -m uvicorn src.app:APP --reload --port 4000
+
+backend-run:
+	@echo "Starting FastAPI backend on http://localhost:4000"
+	@$(ACTIVATE) && $(VENV_PYTHON) -m uvicorn src.app:APP --port 4000
+
+frontend-install:
+	@echo "Installing frontend dependencies..."
+	@cd frontend && npm install
+
+frontend-dev:
+	@echo "Starting React frontend (Vite dev server)"
+	@cd frontend && npm run dev
+
+frontend-build:
+	@echo "Building React frontend..."
+	@cd frontend && npm run build
+
+frontend-preview:
+	@echo "Previewing built frontend..."
+	@cd frontend && npm run preview
+
+dev:
+	@echo "Running backend (:4000) + frontend (:5173) in parallel"
+	@echo "Tip: stop with Ctrl+C"
+	+$(MAKE) -j2 backend-dev frontend-dev
 
 # Deployment Commands
 

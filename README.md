@@ -146,6 +146,48 @@ make stop-docker
 
 ---
 
+## ▲ Vercel Deployment (React + Python)
+
+This repo is now set up to deploy to **Vercel** with:
+
+- A **React** frontend in `frontend/` (Vite)
+- A **Python** backend served as a Vercel Python Function from `api/index.py`
+
+### Backend routes
+
+The FastAPI application is exposed under:
+
+- `GET /api/health`
+- `GET /api/flights/oneway`
+- `GET /api/flights/roundtrip`
+
+### Local development
+
+Run the backend (FastAPI):
+
+```bash
+./venv/bin/python -m uvicorn src.app:APP --reload --port 4000
+```
+
+Run the frontend (React):
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The Vite dev server proxies `/api/*` to `http://localhost:4000`.
+
+### Vercel configuration
+
+See `vercel.json` for:
+
+- routing all `/api/*` requests to the Python function (`api/index.py`)
+- serving the built frontend (`frontend/dist`) with an SPA fallback
+
+---
+
 ## 🌐 **API Endpoints**
 
 The system now provides RESTful API endpoints for programmatic access:

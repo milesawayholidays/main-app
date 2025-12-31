@@ -31,7 +31,6 @@ Configuration Categories:
 """
 
 import os
-from pathlib import Path
 import pandas as pd
 import json
 
@@ -92,61 +91,6 @@ class Config:
         # Keep a minimal set of safe defaults so lightweight endpoints (e.g. /health)
         # can respond without requiring a full env/data load.
         self.VERSION = os.getenv("VERSION", "1.0.0")
-
-        # Tracks whether `load()` completed successfully.
-        self._loaded = False
-
-        # Airport mappings are used in many places (including test/cache paths).
-        # Provide safe defaults so attribute access never crashes.
-        self.IATA_CITY: dict[str, str] = {}
-        self.IATA_COUNTRY: dict[str, str] = {}
-        self.IATA_LATITUDE: dict[str, float] = {}
-        self.IATA_LONGITUDE: dict[str, float] = {}
-        self.COUNTRY_REGION: dict[str, str] = {}
-
-    def _airports_csv_path(self) -> Path:
-        # Repo root is the parent of the `src/` folder.
-        return Path(__file__).resolve().parents[1] / "data" / "airports.csv"
-
-    def _load_airport_mappings(self, *, raise_on_missing: bool) -> None:
-        airports_path = self._airports_csv_path()
-        if not airports_path.exists():
-            if raise_on_missing:
-                raise FileNotFoundError(f"Airports CSV not found at {airports_path}")
-            state.logger.warning(f"Airports CSV not found at {airports_path}; airport mappings will be empty")
-            return
-
-        df = pd.read_csv(airports_path)
-        df = df[["municipality", "iata_code", "iso_country", "latitude_deg", "longitude_deg", "continent"]]
-        df = df.rename(
-            columns={
-                "municipality": "City",
-                "iata_code": "IATA",
-                "iso_country": "Country",
-                "latitude_deg": "Latitude",
-                "longitude_deg": "Longitude",
-                "continent": "Region",
-            }
-        )
-
-        # Drop airports without IATA codes to avoid NaN keys.
-        df = df.dropna(subset=["IATA"])
-
-        self.IATA_CITY = df.set_index("IATA")["City"].to_dict()
-        self.IATA_COUNTRY = df.set_index("IATA")["Country"].to_dict()
-        self.IATA_LATITUDE = df.set_index("IATA")["Latitude"].to_dict()
-        self.IATA_LONGITUDE = df.set_index("IATA")["Longitude"].to_dict()
-        self.COUNTRY_REGION = df.set_index("Country")["Region"].to_dict()
-
-    def ensure_airport_mappings_loaded(self) -> None:
-        """Load airport mappings if they haven't been loaded yet.
-
-        This is intentionally independent from `load()` so tests/cache paths can
-        enrich results without requiring all env vars.
-        """
-        if self.IATA_CITY:
-            return
-        self._load_airport_mappings(raise_on_missing=False)
 
     def load(self):
         """
@@ -228,6 +172,7 @@ class Config:
             - Sets reasonable defaults for optional parameters
         """
         if os.getenv("MODE") != "production":
+            state.ensure_loaded()
             state.logger.info("Loading environment variables from .env file...")
             from dotenv import load_dotenv
             success = load_dotenv()
@@ -249,9 +194,11 @@ class Config:
             if service_account_str and service_account_str != "{}":
                 self.GOOGLE_SERVICE_ACCOUNT = json.loads(service_account_str)
             else:
+                state.ensure_loaded()
                 state.logger.warning("GOOGLE_SERVICE_ACCOUNT is empty or default")
                 self.GOOGLE_SERVICE_ACCOUNT = None
         except json.JSONDecodeError as e:
+            state.ensure_loaded()
             state.logger.error(f"Error parsing GOOGLE_SERVICE_ACCOUNT JSON: {e}")
             self.GOOGLE_SERVICE_ACCOUNT = None
         self.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -269,7 +216,25 @@ class Config:
         self.RESULT_SHEET_ID = os.getenv("RESULT_SHEET_ID")
 
         # Mappings
-        self._load_airport_mappings(raise_on_missing=True)
+
+        df = pd.read_csv("data/airports.csv")
+        df = df[["municipality", "iata_code", "iso_country", "latitude_deg", "longitude_deg", "continent"]]
+        df = df.rename(columns={
+            "municipality": "City",
+            "iata_code": "IATA",
+            "iso_country": "Country",
+            "latitude_deg": "Latitude",
+            "longitude_deg": "Longitude",
+            "continent": "Region"
+        })
+
+        # Create dictionaries for IATA to City and City to Country
+
+        self.IATA_CITY = df.set_index("IATA")["City"].to_dict()
+        self.IATA_COUNTRY = df.set_index("IATA")["Country"].to_dict()
+        self.IATA_LATITUDE = df.set_index("IATA")["Latitude"].to_dict()
+        self.IATA_LONGITUDE = df.set_index("IATA")["Longitude"].to_dict()
+        self.COUNTRY_REGION = df.set_index("Country")["Region"].to_dict()
 
         biased_airports = os.getenv("BIASED_AIRPORTS", "").split(",")
         for airport in biased_airports:
@@ -303,21 +268,11 @@ class Config:
         
         # Separate check for Google Service Account (which might be None)
         if self.GOOGLE_SERVICE_ACCOUNT is None:
+            state.ensure_loaded()
             state.logger.warning("Google Service Account not configured. Google Sheets functionality may not work.")
         else:
+            state.ensure_loaded()
             state.logger.info("Google Service Account loaded successfully")
-
-        self._loaded = True
-
-    def ensure_loaded(self) -> None:
-        """Idempotently load full configuration.
-
-        This is safe to call at the start of every API request; it will only
-        execute `load()` once per warm process.
-        """
-        if self._loaded:
-            return
-        self.load()
 
 
 def assert_env_vars(*vars):

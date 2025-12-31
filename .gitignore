@@ -28,6 +28,8 @@ coverage.xml
 /test_results/
 /cached_raw_results.json
 /debug_trips.json
+/cached_*.json
+/debug_*.json
 *output_*.txt
 
 ### Data (keep the checked-in reference dataset)

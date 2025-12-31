@@ -1,8 +1,8 @@
 import json
 from dataclasses import asdict
 
-from global_state import state
-from data_types.Flight import RawFlightResult, Availability
+from src.global_state import state
+from src.data_types.Flight import RawFlightResult, Availability
 
 
 def save_raw_results_to_file(raw_results: list[RawFlightResult], filepath: str):

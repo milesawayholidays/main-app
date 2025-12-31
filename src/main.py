@@ -40,15 +40,15 @@ import uvicorn
 from app import APP
 import os
 
-from config import config
-from global_state import state
+from src.config import config
+from src.global_state import state
 
-from currencies.cash import handler as cash_handler
-from currencies.mileage import handler as mileage_handler
+from src.currencies.cash import handler as cash_handler
+from src.currencies.mileage import handler as mileage_handler
 
-from services.google_sheets import handler as google_sheets_handler
-from services.openAI import handler as openai_handler
-from services.seats_aero import seats_aero_handler as seats_aero_handler
+from src.services.google_sheets import handler as google_sheets_handler
+from src.services.openAI import handler as openai_handler
+from src.services.seats_aero import seats_aero_handler as seats_aero_handler
 
 def setup():
     """
@@ -116,5 +116,5 @@ if __name__ == "__main__":
         #    subject="Error in Main Execution",
         #    body=f"An error occurred during the main execution: {e}\nCurrent state: {state}",
         #)
-        print(f"Error occurred during main execution: {e}")
+        state.logger.error(f"Error occurred during main execution: {e}")
         exit(1)

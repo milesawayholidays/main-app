@@ -29,10 +29,7 @@ Data Structure:
 import gspread
 from google.oauth2.service_account import Credentials
 
-try:
-    from ..global_state import state
-except ImportError:
-    from global_state import state
+from src.global_state import state
 
 # Standard headers for flight data export
 HEADERS = [

@@ -24,14 +24,14 @@ Methods:
 import pandas as pd
 import numpy as np
 
-from global_state import state
-from config import config
-from currencies.mileage import handler as mileage_handler
-from currencies.cash import handler as cash_handler
+from src.global_state import state
+from src.config import config
+from src.currencies.mileage import handler as mileage_handler
+from src.currencies.cash import handler as cash_handler
 
-from data_types.enums import CABIN
-from data_types.Flight import FlightQuery, RawFlightResult, FilteredFlightList
-from data_types.cities import AIRPORT_TIER, TIER_BONUS
+from src.data_types.enums import CABIN, REGION
+from src.data_types.Flight import FlightQuery, RawFlightResult, FilteredFlightList
+from src.data_types.cities import AIRPORT_TIER, TIER_BONUS
 
 
 class FlightSearchProcessor:
@@ -55,6 +55,44 @@ class FlightSearchProcessor:
     WEIGHT_COST = 1.0
     WEIGHT_DISTANCE = 0.01
     WEIGHT_TIER = 3.0
+
+    @classmethod
+    def _normalize_cabins(cls, query: FlightQuery) -> list[CABIN]:
+        """Return requested cabins as a list of CABIN enum members.
+
+        The API layer passes cabins as strings (either CABIN keys like "j" or
+        values like "business"). Older code paths assumed enums.
+        """
+        raw = query.get("cabins", None)
+        if raw is None:
+            return [c for c in CABIN]
+
+        cabins: list[CABIN] = []
+        for item in list(raw):
+            if isinstance(item, CABIN):
+                cabins.append(item)
+                continue
+
+            if not isinstance(item, str):
+                continue
+
+            token = item.strip()
+            if not token:
+                continue
+
+            if token in CABIN.__members__:
+                cabins.append(CABIN[token])
+                continue
+
+            # Accept value strings like "business"
+            by_value = next((c for c in CABIN if c.value == token), None)
+            if by_value is not None:
+                cabins.append(by_value)
+                continue
+
+            state.logger.warning(f"Unknown cabin '{token}' ignored")
+
+        return cabins if cabins else [c for c in CABIN]
 
     @classmethod
     def find_top_oneway_trips(
@@ -83,7 +121,7 @@ class FlightSearchProcessor:
         unproccessed_flights_df:pd.DataFrame = cls.__enrich_dataframe(unproccessed_flights_df)
 
 
-        cabins: list[CABIN] = query.get("cabins", [cabin for cabin in CABIN])
+        cabins: list[CABIN] = cls._normalize_cabins(query)
         valid_columns = [f"{c.name}_available" for c in cabins]
 
         mask = False
@@ -155,8 +193,17 @@ class FlightSearchProcessor:
         unproccessed_trips_df:pd.DataFrame = cls.__normalise_results(search_results)
         unproccessed_trips_df:pd.DataFrame = cls.__enrich_dataframe(unproccessed_trips_df)
 
-        cabins: list[CABIN] = query.get("cabins", [cabin for cabin in CABIN])
-        unproccessed_trips_df = unproccessed_trips_df[unproccessed_trips_df["cabin"].isin([cabin.value for cabin in cabins])]
+        cabins: list[CABIN] = cls._normalize_cabins(query)
+
+        # Raw Seats.aero availability does not include a single "cabin" column.
+        # Filter by the selected cabin availability flags instead.
+        valid_columns = [f"{c.name}_available" for c in cabins]
+        mask = False
+        for col in valid_columns:
+            if col in unproccessed_trips_df.columns:
+                mask = mask | (unproccessed_trips_df[col] > 0)
+
+        unproccessed_trips_df = unproccessed_trips_df[mask]
         if unproccessed_trips_df.empty:
             state.logger.warning("No data found for the specified cabins.")
             raise ValueError("No data found for the specified cabins.")
@@ -248,6 +295,11 @@ class FlightSearchProcessor:
         
         state.logger.info("Processing bulk availability data into DataFrame")
         df = pd.DataFrame([d.to_dict() for d in data])
+
+        # The same Seats.aero availability ID can show up across multiple region queries.
+        # Deduplicate early so we don't create duplicate trips or conflicting region labels.
+        if "ID" in df.columns:
+            df = df.drop_duplicates(subset=["ID"], keep="last")
         
         if df.empty:
             state.logger.error("No data found in bulk availability.")
@@ -289,6 +341,18 @@ class FlightSearchProcessor:
         df["destination_country"] = df["destination_airport"].map(config.IATA_COUNTRY)
         # Drop rows where origin or destination country is not found
         df.dropna(subset=["origin_country", "destination_country"], inplace=True)
+
+        # Derive canonical regions from airport countries.
+        # NOTE: We intentionally overwrite any region labels coming from the bulk-query metadata.
+        # The bulk query regions are not guaranteed to be exclusive, and can cause conflicting labels.
+        def _country_to_region_value(country: str):
+            code = config.COUNTRY_REGION.get(country)
+            member = REGION.__members__.get(code) if code else None
+            return member.value if member else None
+
+        df["origin_region"] = df["origin_country"].map(_country_to_region_value)
+        df["destination_region"] = df["destination_country"].map(_country_to_region_value)
+        df.dropna(subset=["origin_region", "destination_region"], inplace=True)
 
     
         df["origin_lat"] = df["origin_airport"].map(config.IATA_LATITUDE)
@@ -388,6 +452,12 @@ class FlightSearchProcessor:
             right_on=[f"destination_city{cls.RET_SUFFIX}", f"origin_city{cls.RET_SUFFIX}"],
             how='inner'
         )
+
+        # Prevent duplicate pairings when the same availability IDs appear multiple times.
+        out_id = f"ID{cls.OUT_SUFFIX}"
+        ret_id = f"ID{cls.RET_SUFFIX}"
+        if out_id in merged_df.columns and ret_id in merged_df.columns:
+            merged_df = merged_df.drop_duplicates(subset=[out_id, ret_id], keep="last")
             
         merged_df = merged_df[
             merged_df[f"date{cls.RET_SUFFIX}"] > merged_df[f"date{cls.OUT_SUFFIX}"]
@@ -433,24 +503,26 @@ class FlightSearchProcessor:
 
         df["cutoff_price"] = df["min_price_in_pair"] * cls.CUTOFF_THRESHOLD
         df = df[df["total_cost"] <= df["cutoff_price"]] 
-        
-        top5 = (
-            df
-            .sort_values(["score", f"date{out_suffix}", f"date{ret_suffix}"], ascending=[True, True, True])
-            .groupby(group_by_factor)
-            .head(cls.PACKAGE_SIZE)
-        )
 
         # region pairing
-        top5["region_pair"] = list(zip(top5[f"origin_region{out_suffix}"], top5[f"destination_region{out_suffix}"]))
+        df = df.copy()
+        df["region_pair"] = list(
+            zip(df[f"origin_region{out_suffix}"], df[f"destination_region{out_suffix}"])
+        )
 
+        # Select the best `n` trips per region pair (per cabin).
+        # This is the final selection step; it must enforce the per-pair cap.
+        sort_cols = ["region_pair", "score"]
+        for c in (f"date{out_suffix}", f"date{ret_suffix}"):
+            if c in df.columns and c not in sort_cols:
+                sort_cols.append(c)
 
-        top5 = top5.sort_values(["region_pair", "score"], ascending=[True, True])
-
-        # GLOBAL limit
-        global_limit = n * cls.PACKAGE_SIZE
-
-        topN = top5.head(global_limit).copy()
+        topN = (
+            df.sort_values(sort_cols, ascending=[True] * len(sort_cols))
+            .groupby("region_pair")
+            .head(n)
+            .copy()
+        )
 
         cols_to_drop = [
             "min_price_in_pair",

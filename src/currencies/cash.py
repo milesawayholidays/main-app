@@ -9,10 +9,7 @@ It is part of a larger system that manages flight alerts and related services.
 import requests
 import numpy as np
 
-try:
-    from ..global_state import state
-except ImportError:
-    from global_state import state
+from src.global_state import state
 
 class CashHandler:
     def __init__(self):

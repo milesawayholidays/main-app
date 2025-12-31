@@ -30,9 +30,9 @@ Usage Context:
 import requests
 from io import BytesIO
 
-from config import config
+from src.config import config
 
-from data_types.images import Image
+from src.data_types.images import Image
 
 
 def fetch_image(query: str) -> list[Image]:

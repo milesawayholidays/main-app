@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from src.data_types.Flight import FlightQuery
 from src.orchestrator import find_trips
@@ -22,8 +22,8 @@ def get_oneway_flights(
     min_remaining_seats: int | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
-    n: int = 1,
-    deepness: int = 1):
+    n: int = Query(1, ge=1, le=8),
+    deepness: int = Query(1, ge=1, le=3)):
     """Retrieve one-way flights based on various filters."""
     query = FlightQuery()
     query.build_query(
@@ -68,8 +68,8 @@ def get_roundtrip_flights(
     min_remaining_seats: int | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
-    n: int = 1,
-    deepness: int = 1):
+    n: int = Query(1, ge=1, le=8),
+    deepness: int = Query(1, ge=1, le=3)):
     """Retrieve round-trip flights based on various filters."""
     query = FlightQuery()
     query.build_query(

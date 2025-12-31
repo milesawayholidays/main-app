@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from src.data_types.Flight import FlightQuery
 from src.orchestrator import generate_raw_cache, find_trips_from_cache
@@ -24,7 +24,7 @@ def generate_cache_handler(
     min_remaining_seats: int | None = None,
     start_date: str = None,
     end_date: str = None,
-    deepness: int = 1
+    deepness: int = Query(1, ge=1, le=3)
 ):
     
     query = FlightQuery()
@@ -70,7 +70,7 @@ def process_cache_handler(
     min_return_days: int | None = None,
     max_return_days: int | None = None,
     min_remaining_seats: int | None = None,
-    n: int = 1,
+    n: int = Query(1, ge=1, le=8),
     oneway: bool = True
 ):
     

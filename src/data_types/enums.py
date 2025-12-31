@@ -92,6 +92,39 @@ class REGION(Enum):
         raise ValueError(f"Region '{region_name}' not found in REGION enum.")
 
     @classmethod
+    def parse(cls, region: str) -> 'REGION':
+        """Parse a region from either enum name (e.g. 'NA') or value (e.g. 'North America').
+
+        Accepts case-insensitive inputs and normalizes common separators.
+        """
+        if region is None:
+            raise ValueError("Region cannot be None")
+
+        raw = str(region).strip()
+        if not raw:
+            raise ValueError("Region cannot be empty")
+
+        # 1) Exact value match
+        try:
+            return cls(raw)
+        except Exception:
+            pass
+
+        # 2) Enum name match (NA, EU, etc.)
+        key = raw.strip().upper()
+        if key in cls.__members__:
+            return cls.__members__[key]
+
+        # 3) Case-insensitive value match (normalize separators)
+        normalized = raw.lower().replace("_", " ").replace("-", " ")
+        normalized = " ".join(normalized.split())
+        for member in cls:
+            if member.value.lower() == normalized:
+                return member
+
+        raise ValueError(f"Region '{region}' not found in REGION enum")
+
+    @classmethod
     def get_region_values(cls):
         """
         Get a list of all region values.

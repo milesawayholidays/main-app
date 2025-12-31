@@ -1,11 +1,11 @@
 import pandas as pd
 from dataclasses import dataclass, asdict
 
-from config import config
+from src.config import config
 
-from data_types.enums import REGION, CABIN, SOURCE, PROVIDER
+from .enums import REGION, CABIN, SOURCE, PROVIDER
 
-from logic.trip_builder import TripOption, RoundTrip, Route
+from src.logic.trip_builder import TripOption, RoundTrip, Route
 
 
 ### FLIGHT SEARCH RESULT DATA TYPES ###
@@ -218,13 +218,33 @@ class FilteredFlightList(list[FlightFilterResult]):
     def append_from_dataframe(self, df: pd.DataFrame, out_suffix: str = "", ret_suffix: str = ""):
         if df is None or df.empty:
             return
-       
-        expected_columns = ONEWAY_DF_COLUMNS if ret_suffix == "" else ROUND_DF_COLUMNS
-        if set(df.columns) != expected_columns:
-            raise ValueError("DataFrame columns do not match FlightFilterResult columns.")
-        
-        if expected_columns == ROUND_DF_COLUMNS and (out_suffix == "" or ret_suffix == ""):
+
+        is_round = ret_suffix != ""
+        if is_round and (out_suffix == "" or ret_suffix == ""):
             raise ValueError("Both out_suffix and ret_suffix must be provided for round-trip data.")
+
+        # The processing pipeline may add extra computed columns (e.g. total_cost, distance)
+        # and may evolve naming. Only require the minimal set needed to build FlightFilterResult.
+        required_cols = {
+            f"ID{out_suffix}",
+            f"origin_city{out_suffix}",
+            f"origin_country{out_suffix}",
+            f"origin_region{out_suffix}",
+            f"destination_city{out_suffix}",
+            f"destination_country{out_suffix}",
+            f"destination_region{out_suffix}",
+            f"cabin{out_suffix}",
+            f"provider{out_suffix}",
+        }
+        if is_round:
+            required_cols |= {
+                f"ID{ret_suffix}",
+                f"provider{ret_suffix}",
+            }
+
+        missing = required_cols - set(df.columns)
+        if missing:
+            raise ValueError(f"DataFrame missing required columns: {sorted(missing)}")
 
         for _, row in df.iterrows():
             result = FlightFilterResult()
@@ -357,16 +377,18 @@ class FlightQuery:
 
         # Validators for specific fields (callable returning allowed values)
         validators = {
-            "origin_regions": REGION.get_region_names,
-            "destination_regions": REGION.get_region_names,
+            # Regions are normalized below via REGION.parse to accept both enum codes and names.
+            "origin_regions": None,
+            "destination_regions": None,
             "origin_countries": lambda: list(config.IATA_COUNTRY.values()),
             "destination_countries": lambda: list(config.IATA_COUNTRY.values()),
             "origin_cities": lambda: list(config.IATA_CITY.values()),
             "destination_cities": lambda: list(config.IATA_CITY.values()),
             "origin_airports": lambda: list(config.IATA_COUNTRY.keys()),
             "destination_airports": lambda: list(config.IATA_COUNTRY.keys()),
-            "sources": (lambda: list(SOURCE.__members__.values())) if hasattr(SOURCE, "__members__") else None,
-            "cabins": (lambda: list(CABIN.__members__.keys())) if hasattr(CABIN, "__members__") else None,
+            # Sources/cabins are normalized below; accept user-friendly values.
+            "sources": None,
+            "cabins": None,
             
         }
 
@@ -377,7 +399,44 @@ class FlightQuery:
             if key in ("min_cost", "max_cost", "min_return_days", "max_return_days", "min_remaining_seats"):
                 validated = val
             else:
-                validated = self._validate_list(val, allowed_getter=allowed_getter, param_name=key)
+                if key in ("origin_regions", "destination_regions"):
+                    if val is None:
+                        validated = None
+                    else:
+                        incoming = list(val)
+                        invalid: list[str] = []
+                        normalized: list[str] = []
+                        for v in incoming:
+                            try:
+                                normalized.append(REGION.parse(v).value)
+                            except Exception:
+                                invalid.append(str(v))
+                        if invalid:
+                            raise ValueError(f"Invalid {key}: {invalid}")
+                        validated = normalized
+                elif key == "sources":
+                    if val is None:
+                        validated = None
+                    else:
+                        allowed = set(SOURCE.get_source_values())
+                        incoming = [str(v).strip() for v in list(val) if str(v).strip()]
+                        invalid = [v for v in incoming if v not in allowed]
+                        if invalid:
+                            raise ValueError(f"Invalid {key}: {invalid}")
+                        validated = incoming
+                elif key == "cabins":
+                    if val is None:
+                        validated = None
+                    else:
+                        incoming = [str(v).strip() for v in list(val) if str(v).strip()]
+                        allowed_keys = set(CABIN.__members__.keys())
+                        allowed_values = set(c.value for c in CABIN)
+                        invalid = [v for v in incoming if v not in allowed_keys and v not in allowed_values]
+                        if invalid:
+                            raise ValueError(f"Invalid {key}: {invalid}")
+                        validated = incoming
+                else:
+                    validated = self._validate_list(val, allowed_getter=allowed_getter, param_name=key)
 
             setattr(self, key, validated)
 

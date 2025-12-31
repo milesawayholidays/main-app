@@ -35,11 +35,11 @@ Key Features:
 from datetime import date
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from global_state import state
-from config import config
-from helpers import load_raw_results_from_file, save_raw_results_to_file
+from src.global_state import state
+from src.config import config
+from src.helpers import load_raw_results_from_file, save_raw_results_to_file
 
-from logic.flight_search_processor import flight_processor
+from src.logic.flight_search_processor import flight_processor
 
 
 """
@@ -56,14 +56,28 @@ summary_round_trip_list_by_city_pairing_by_cabin = dict[CABIN, dict[tuple[str, s
 summary_trip_list_by_cabin = dict[CABIN, list[summary_trip]]
 """
 
-from logic.trip_builder import RoundTrip, format_availability_object, TripOption
-from logic.trip_builder import Route
+from src.logic.trip_builder import RoundTrip, format_availability_object, TripOption
+from src.logic.trip_builder import Route
 
-from services.seats_aero import seats_aero_handler
-from services.google_sheets import handler as sheets_handler  
+from src.services.seats_aero import seats_aero_handler
+from src.services.google_sheets import handler as sheets_handler  
 
-from data_types.enums import SOURCE, REGION
-from data_types.Flight import FlightFilterResult, FlightQuery, RawFlightResult, FilteredFlightList, FlightOptions
+from src.currencies.cash import handler as cash_handler
+from src.currencies.mileage import handler as mileage_handler
+
+from src.data_types.enums import SOURCE, REGION
+from src.data_types.Flight import FlightFilterResult, FlightQuery, RawFlightResult, FilteredFlightList, FlightOptions
+
+MAX_N = 8
+MAX_DEEPNESS = 3
+
+
+def _clamp_int(value: int, *, min_value: int, max_value: int) -> int:
+    try:
+        value_int = int(value)
+    except Exception:
+        value_int = min_value
+    return max(min_value, min(value_int, max_value))
 
 def find_trips(
         query: FlightQuery = None, 
@@ -89,6 +103,14 @@ def find_trips(
     Returns:
         dict: A dictionary containing the status of the operation and any relevant messages.
     """
+
+    # Initialization is handled by the API layer (per-request) and by the CLI entrypoint.
+
+    if query is None:
+        query = FlightQuery()
+
+    n = _clamp_int(n, min_value=1, max_value=MAX_N)
+    deepness = _clamp_int(deepness, min_value=1, max_value=MAX_DEEPNESS)
 
     state.logger.info("Starting flight alert pipeline for round trips with filter")
 
@@ -130,7 +152,6 @@ def find_trips(
 
             search_result.extend(
                 RawFlightResult.from_list(
-                    source=source,
                     origin_region=origin,
                     destination_region=destination,
                     availability_list=availability_list
@@ -156,7 +177,7 @@ def find_trips(
         )
     else:
         filter_result = flight_processor.find_top_round_trips(
-            flight_search_results=search_result,
+            search_results=search_result,
             n=n,
             query=query
         )
@@ -166,12 +187,12 @@ def find_trips(
         return {"status": 204, "data": {"error": "No valid round trips found"}}
     
     flight_options = format_flights(filter_result)
-    if not flight_options or len(flight_options) == 0:
+    if not flight_options:
         return {"status": 204, "data": {"error": "No valid flight options found"}}
     
-    broadcast_flights(flight_options)
+    #broadcast_flights(flight_options)
 
-    return {"status": 200, "data": {"message": "Flight options processed successfully"}}
+    return {"status": 200, "data": flight_options}
 
 
 
@@ -193,6 +214,13 @@ def generate_raw_cache(
     Fetches all availability data (parallelized), builds RawFlightResult objects,
     and saves them to disk for later processing without API usage.
     """
+
+    # Initialization is handled by the API layer (per-request) and by the CLI entrypoint.
+
+    if query is None:
+        query = FlightQuery()
+
+    deepness = _clamp_int(deepness, min_value=1, max_value=MAX_DEEPNESS)
 
     state.logger.info("Starting cache generation run (no filtering, no processing)")
 
@@ -222,7 +250,7 @@ def generate_raw_cache(
 
         for future in as_completed(futures):
             try:
-                origin, destination, availability_list = future.result()
+                source, origin, destination, availability_list = future.result()
 
                 if not availability_list:
                     continue
@@ -257,6 +285,7 @@ def generate_raw_cache(
 
 
 def find_trips_from_cache( query: FlightQuery, filepath: str = "cached_raw_results.json", oneway=True, n=1):
+    n = _clamp_int(n, min_value=1, max_value=MAX_N)
     raw_results = load_raw_results_from_file(filepath)
 
     filter_result: FilteredFlightList
@@ -268,7 +297,7 @@ def find_trips_from_cache( query: FlightQuery, filepath: str = "cached_raw_resul
         )
     else:
         filter_result = flight_processor.find_top_round_trips(
-            flight_search_results=raw_results,
+            search_results=raw_results,
             n=n,
             query=query
         )
@@ -285,9 +314,9 @@ def find_trips_from_cache( query: FlightQuery, filepath: str = "cached_raw_resul
         json.dump(trips_json, f, indent=2, ensure_ascii=False)
        
     flight_options = format_flights(filter_result)
-    broadcast_flights(flight_options)
+    #broadcast_flights(flight_options)
 
-    return {"status": 200, "data": {"message": "Processed from cached raw results"}}
+    return {"status": 200, "data": flight_options}
 
 
 
@@ -361,7 +390,7 @@ def format_flights(trips: FilteredFlightList) -> FlightOptions:
     # ---------------------------------------------
     single_trips: list[TripOption] = []
     round_relation_trips: list[RoundTrip] = []
-    round_options: dict[(str, str), list[Route]] = {}
+    round_options: dict[tuple[str, str], list[RoundTrip]] = {}
 
     for r in results:
         formatted_out = r["formatted_out"]
@@ -380,7 +409,7 @@ def format_flights(trips: FilteredFlightList) -> FlightOptions:
             round_options[city_pairing] = []
             optionID = str(hash(f"{city_pairing}-{date.today()}"))
         else:
-            optionID = round_options[city_pairing][0].ID
+            optionID = round_options[city_pairing][0].option_id
 
         round_trip = RoundTrip(
             outbound=formatted_out,
@@ -394,14 +423,14 @@ def format_flights(trips: FilteredFlightList) -> FlightOptions:
     # Build Route list
     round_options_list = [
         Route(
-            ID=round_trips[0].ID,
+            ID=round_trips[0].option_id,
             roundTrips=round_trips,
             origin_city=pair[0],
             destination_city=pair[1],
-            origin_country=round_trips[0].origin_country,
-            destination_country=round_trips[0].destination_country,
+            origin_country=round_trips[0].outbound.origin_country,
+            destination_country=round_trips[0].outbound.destination_country,
             release_date=date.today().strftime('%Y-%m-%d'),
-            cabin=round_trips[0].cabin
+            cabin=round_trips[0].outbound.cabin
         )
         for pair, round_trips in round_options.items()
     ]
@@ -465,7 +494,7 @@ def _fetch_single_combo(args):
         destination_region=other_region,
         deepness=deep
     )
-    return (region, other_region, availability)
+    return (source, region, other_region, availability)
 
 import json
 

@@ -23,13 +23,13 @@ The module handles:
 import os
 from datetime import datetime
 
-from config import config
-from global_state import state
-from currencies.cash import handler as cash_handler, cents_to_str
-from currencies.mileage import handler as mileage_handler
+from src.config import config
+from src.global_state import state
+from src.currencies.cash import handler as cash_handler, cents_to_str
+from src.currencies.mileage import handler as mileage_handler
 
-from services.openAI import handler as openAI_handler
-from services.unsplash import fetch_image
+from src.services.openAI import handler as openAI_handler
+from src.services.unsplash import fetch_image
 
 
 class Trip:
@@ -340,6 +340,10 @@ class RoundTrip:
         self.total_cost = outbound.normal_total_cost + return_.normal_total_cost
         self.selling_price = outbound.selling_price + return_.selling_price
         self.option_id = OptionID
+
+    @property
+    def ID(self) -> str:
+        return self.option_id
     
     def normal_selling_price_to_str(self) -> str:
         """
@@ -557,7 +561,6 @@ def format_availability_object(availabilityObject: dict, region: str) -> Trip:
         - Combines multiple booking links with commas
         - Uses segment source for airline identification
     """
-    print(availabilityObject)
     if availabilityObject is None or not availabilityObject or len(availabilityObject) == 0:
         state.logger.error("Availability object is empty.")
         return None

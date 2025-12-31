@@ -10,7 +10,8 @@ const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
 
 export async function fetchJson<T extends JsonValue>(
   path: string,
-  params?: Record<string, string | number | boolean | (string | number)[] | undefined | null>
+  params?: Record<string, string | number | boolean | (string | number)[] | undefined | null>,
+  init?: RequestInit
 ): Promise<T> {
   const url = new URL(API_BASE + path, window.location.origin);
 
@@ -25,7 +26,10 @@ export async function fetchJson<T extends JsonValue>(
     }
   }
 
-  const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+  const headers = new Headers(init?.headers);
+  if (!headers.has('Accept')) headers.set('Accept', 'application/json');
+
+  const res = await fetch(url.toString(), { ...init, headers });
   const text = await res.text();
 
   let json: unknown;

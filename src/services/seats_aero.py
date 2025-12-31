@@ -28,10 +28,10 @@ API Endpoints:
 
 import requests
 
-from global_state import state
+from src.global_state import state
 
-from data_types.enums import REGION, SOURCE, CABIN
-from data_types.Flight import Availability
+from src.data_types.enums import REGION, SOURCE, CABIN
+from src.data_types.Flight import Availability
 
 class SeatsAeroHandler:
     """
@@ -158,6 +158,13 @@ class SeatsAeroHandler:
         cabin: str = None
     ) -> list[Availability]:
 
+        # Safety clamp: deepness controls pagination depth (pages) per region-pair query.
+        try:
+            deepness = int(deepness)
+        except Exception:
+            deepness = 1
+        deepness = max(1, min(deepness, 3))
+
         state.logger.info(
             f"Fetching bulk availability for "
             f"{source}/{origin_region} → {destination_region}, deepness={deepness}"
@@ -210,7 +217,6 @@ class SeatsAeroHandler:
 
         # Deduplication AFTER all pages
         unique_items = {item["ID"]: item for item in all_items_raw if item.get("ID")}
-        state.logger.info(f"Fetched {len(all_items_raw)} items → {len(unique_items)} unique")
 
         # Build Availability objects only once
         results: list[Availability] = []

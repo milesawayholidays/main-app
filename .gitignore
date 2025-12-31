@@ -1,12 +1,40 @@
-venv/
+### Python
+/venv/
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+
+### Node / Frontend
+/frontend/node_modules/
+/frontend/dist/
+/frontend/.vite/
+
+### Secrets
 .env
-sheets_api_key.json
-logs/
-data/
-test_results/
-pdfs/
-images/
+.env.*
+!.env.example
+!.env.template
+!.env.sample
+/sheets_api_key.json
+
+### Generated / local artifacts
+/logs/
+/test_results/
+/cached_raw_results.json
+/debug_trips.json
 *output_*.txt
+
+### Data (keep the checked-in reference dataset)
+/data/**
+!/data/airports.csv
+
+### Optional output folders (root only)
+/pdfs/
+/images/
 

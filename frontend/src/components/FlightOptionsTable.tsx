@@ -12,6 +12,30 @@ type SelectedRoute = {
   cabin: string | null;
 };
 
+function extractPrimaryBookingUrl(raw: unknown): string | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const rec = raw as Record<string, unknown>;
+
+  const direct = rec['booking_link'] ?? rec['bookingLink'] ?? rec['booking_url'] ?? rec['bookingUrl'];
+  if (typeof direct === 'string' && direct.trim()) return direct.trim();
+
+  const links = rec['booking_links'] ?? rec['bookingLinks'];
+  if (Array.isArray(links)) {
+    const first = links.find((x) => typeof x === 'string' && x.trim());
+    return typeof first === 'string' ? first.trim() : null;
+  }
+  if (typeof links === 'string' && links.trim()) {
+    // Sometimes links are serialized as a single string (e.g. "; " joined).
+    const first = links
+      .split(/[;,]\s*/)
+      .map((s) => s.trim())
+      .find((s) => s.length > 0);
+    return first ?? null;
+  }
+
+  return null;
+}
+
 export function FlightOptionsTable({ value }: FlightOptionsTableProps) {
   const model = React.useMemo(() => buildFlightOptionsTableModel(value), [value]);
   const [regionPair, setRegionPair] = React.useState<string>('');
@@ -50,6 +74,7 @@ export function FlightOptionsTable({ value }: FlightOptionsTableProps) {
 
   const inDrilldown = model.view === 'round' && selectedRoute !== null;
   const showReturn = model.view === 'round' && !inDrilldown;
+  const showBookingLink = !showReturn;
 
   const rowsForFilterOptions = React.useMemo(() => {
     if (inDrilldown) return [];
@@ -444,6 +469,7 @@ export function FlightOptionsTable({ value }: FlightOptionsTableProps) {
               <th style={th}>Mileage cost</th>
               <th style={th}>Taxes</th>
               <th style={th}>Total cost</th>
+              {showBookingLink ? <th style={th}>Booking</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -473,6 +499,20 @@ export function FlightOptionsTable({ value }: FlightOptionsTableProps) {
                 <td style={{ ...td, textAlign: 'right' }}>{r.mileageCost ?? ''}</td>
                 <td style={{ ...td, textAlign: 'right' }}>{r.taxes ?? ''}</td>
                 <td style={{ ...td, textAlign: 'right' }}>{r.totalCost ?? ''}</td>
+                {showBookingLink ? (
+                  <td style={td} onClick={(e) => e.stopPropagation()}>
+                    {r.kind === 'single_trip' ? (() => {
+                      const url = extractPrimaryBookingUrl(r.raw);
+                      return url ? (
+                        <a href={url} target="_blank" rel="noopener noreferrer">
+                          Check link
+                        </a>
+                      ) : (
+                        ''
+                      );
+                    })() : ''}
+                  </td>
+                ) : null}
               </tr>
             ))}
           </tbody>

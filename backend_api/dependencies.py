@@ -9,7 +9,7 @@ from src.global_state import state
 def ensure_request_initialized(request: Request) -> None:
     """Centralized per-request initialization.
 
-    Vercel/serverless invocations don't guarantee a consistent module init order,
+    Requests can arrive before all modules/handlers have been initialized,
     so we make sure state/config + required handlers are ready per request.
 
     Notes:

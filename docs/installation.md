@@ -157,23 +157,12 @@ The application should start and begin processing flight alerts based on your co
 
 This project supports three common deployment modes:
 
-### Vercel Deployment
+### Docker (Single Container: Frontend + API)
 
-This repo includes [vercel.json](../vercel.json) which deploys:
+This runs a single container that serves:
 
-- The FastAPI backend as a Vercel Python function via [api/index.py](../api/index.py)
-- The React frontend as a static build from `frontend/dist`
-
-Important behavior:
-
-- Backend routes are available under `/api/*` (example: `/api/flights/oneway`).
-- The FastAPI interactive docs (`/docs`) are intended for local dev; with the current Vercel routing they are not exposed.
-
-In Vercel, set the same environment variables you would put in `.env` (API keys, Google credentials, etc.).
-
-### Docker (Single Container: Backend Only)
-
-This runs only the backend API in Docker (similar to the command you were using).
+- the API under `/api/*`
+- the built React frontend at `/` (SPA fallback enabled)
 
 ```bash
 make docker-image
@@ -182,7 +171,7 @@ make run-docker
 
 Defaults:
 
-- Backend published at `http://localhost:3000` (host) → `:4000` (container)
+- App published at `http://localhost:4000` (host) → `:4000` (container)
 - Uses `--env-file .env`
 - Uses `--restart unless-stopped`
 - Uses `-m 300m --memory-swap 500m`
@@ -193,9 +182,9 @@ Stop it with:
 make stop-docker
 ```
 
-### Docker Compose (Backend + Frontend)
+### Docker Compose (Single Service)
 
-This runs both backend and frontend in containers.
+This runs the same single container using docker compose.
 
 ```bash
 make compose-up
@@ -203,13 +192,20 @@ make compose-up
 
 Defaults:
 
-- Backend: `http://localhost:3000`
-- Frontend: `http://localhost:5173`
+- App: `http://localhost:4000`
+- API: `http://localhost:4000/api/health`
 
 Stop it with:
 
 ```bash
 make compose-down
+
+### Render (Single Service)
+
+Render runs the same Docker image as a single web service.
+
+- Use the blueprint in `render.yaml`.
+- Set the same environment variables you would put in `.env` (API keys, Google credentials, etc.).
 ```
 
 ---

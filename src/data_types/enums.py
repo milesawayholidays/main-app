@@ -20,6 +20,16 @@ class SOURCE(Enum):
     SMILES = "smiles"      # Smiles (GOL) loyalty program  
     QANTAS = "qantas"        # Qantas Airways loyalty program
 
+    @classmethod
+    def get_source_values(cls):
+        """
+        Get a list of all source values.
+        
+        Returns:
+            List[str]: List of source values
+        """
+        return ["azul", "smiles", "qantas"]
+
 
 class REGION(Enum):
     """
@@ -81,6 +91,58 @@ class REGION(Enum):
         
         raise ValueError(f"Region '{region_name}' not found in REGION enum.")
 
+    @classmethod
+    def parse(cls, region: str) -> 'REGION':
+        """Parse a region from either enum name (e.g. 'NA') or value (e.g. 'North America').
+
+        Accepts case-insensitive inputs and normalizes common separators.
+        """
+        if region is None:
+            raise ValueError("Region cannot be None")
+
+        raw = str(region).strip()
+        if not raw:
+            raise ValueError("Region cannot be empty")
+
+        # 1) Exact value match
+        try:
+            return cls(raw)
+        except Exception:
+            pass
+
+        # 2) Enum name match (NA, EU, etc.)
+        key = raw.strip().upper()
+        if key in cls.__members__:
+            return cls.__members__[key]
+
+        # 3) Case-insensitive value match (normalize separators)
+        normalized = raw.lower().replace("_", " ").replace("-", " ")
+        normalized = " ".join(normalized.split())
+        for member in cls:
+            if member.value.lower() == normalized:
+                return member
+
+        raise ValueError(f"Region '{region}' not found in REGION enum")
+
+    @classmethod
+    def get_region_values(cls):
+        """
+        Get a list of all region values.
+        
+        Returns:
+            List[str]: List of region names
+        """
+        return ["North America", "South America", "Africa", "Asia", "Europe", "Oceania"]
+    
+    @classmethod
+    def get_region_names(cls):
+        """
+        Get a list of all region enum names.
+        
+        Returns:
+            List[str]: List of region enum names
+        """
+        return ["NA", "SA", "AF", "AS", "EU", "OC"]
 class CABIN(Enum):
     """
     Enum for airline cabin classes.
@@ -88,7 +150,10 @@ class CABIN(Enum):
     Uses standard IATA cabin class codes to represent different
     service levels on flights.
     """
-    Y = "economy"     # Economy/Coach class
-    W = "premium"  # Premium Economy class
-    J = "business"    # Business class
-    F = "first"       # First class
+    y = "economy"     # Economy/Coach class
+    w = "premium"  # Premium Economy class
+    j = "business"    # Business class
+    f = "first"       # First class
+
+class PROVIDER(str, Enum):
+    SEATS_AERO = "seats.aero"

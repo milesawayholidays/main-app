@@ -34,6 +34,9 @@ import os
 import pandas as pd
 import json
 
+from src.data_types.cities import AIRPORT_TIER
+from src.global_state import state
+
 
 class Config:
     """
@@ -85,7 +88,9 @@ class Config:
         Creates an empty configuration instance. The actual configuration
         loading happens when the load() method is called.
         """
-        pass
+        # Keep a minimal set of safe defaults so lightweight endpoints (e.g. /health)
+        # can respond without requiring a full env/data load.
+        self.VERSION = os.getenv("VERSION", "1.0.0")
 
     def load(self):
         """
@@ -167,7 +172,8 @@ class Config:
             - Sets reasonable defaults for optional parameters
         """
         if os.getenv("MODE") != "production":
-            print("Loading environment variables from .env file...")
+            state.ensure_loaded()
+            state.logger.info("Loading environment variables from .env file...")
             from dotenv import load_dotenv
             success = load_dotenv()
             if not success:
@@ -188,10 +194,12 @@ class Config:
             if service_account_str and service_account_str != "{}":
                 self.GOOGLE_SERVICE_ACCOUNT = json.loads(service_account_str)
             else:
-                print("Warning: GOOGLE_SERVICE_ACCOUNT is empty or default")
+                state.ensure_loaded()
+                state.logger.warning("GOOGLE_SERVICE_ACCOUNT is empty or default")
                 self.GOOGLE_SERVICE_ACCOUNT = None
         except json.JSONDecodeError as e:
-            print(f"Error parsing GOOGLE_SERVICE_ACCOUNT JSON: {e}")
+            state.ensure_loaded()
+            state.logger.error(f"Error parsing GOOGLE_SERVICE_ACCOUNT JSON: {e}")
             self.GOOGLE_SERVICE_ACCOUNT = None
         self.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
         self.GOOGLE_EMAIL = os.getenv("GOOGLE_EMAIL")
@@ -227,7 +235,12 @@ class Config:
         self.IATA_LATITUDE = df.set_index("IATA")["Latitude"].to_dict()
         self.IATA_LONGITUDE = df.set_index("IATA")["Longitude"].to_dict()
         self.COUNTRY_REGION = df.set_index("Country")["Region"].to_dict()
-        
+
+        biased_airports = os.getenv("BIASED_AIRPORTS", "").split(",")
+        for airport in biased_airports:
+            AIRPORT_TIER[airport.strip()] = "System-Biased-Cities"
+            
+
         # Assert required environment variables
         assert_env_vars(
             ("CURRENCY", self.CURRENCY),
@@ -255,9 +268,11 @@ class Config:
         
         # Separate check for Google Service Account (which might be None)
         if self.GOOGLE_SERVICE_ACCOUNT is None:
-            print("Warning: Google Service Account not configured. Google Sheets functionality may not work.")
+            state.ensure_loaded()
+            state.logger.warning("Google Service Account not configured. Google Sheets functionality may not work.")
         else:
-            print("✅ Google Service Account loaded successfully")
+            state.ensure_loaded()
+            state.logger.info("Google Service Account loaded successfully")
 
 
 def assert_env_vars(*vars):

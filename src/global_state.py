@@ -71,9 +71,29 @@ class GLOBAL_STATE:
         Creates an empty state object that requires load() to be called
         to set up timestamps, flags, and logging configuration.
         """
-        self.log_buffer = []  # Store log messages for persistence
+        # Buffer for persisted logs; safe to use before `load()`.
+        self.log_buffer = []
         self.state_file_path = None  # Will be set during load()
-        pass
+
+        # Provide safe defaults so callers can log without requiring `load()`.
+        # We intentionally avoid creating the execution state file here.
+        self.timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+        self.mainModInitialized = False
+        self.configInitialized = False
+        self.cashModInitialized = False
+        self.mileageModInitialized = False
+        self.googleSheetsModInitialized = False
+        self.openAIHandlerInitialized = False
+        self.seatsAeroHandlerInitialized = False
+        self.clickmassaHandlerInitialized = False
+        self.flightsRetrieved = False
+        self.flightsAnalysed = False
+        self.flightsFormatted = False
+        self.sentToGoogleSheets = False
+        self.emailSent = False
+
+        # `setup_logger()` is lightweight and avoids filesystem writes.
+        self.logger = self.setup_logger()
 
     def load(self):
         """
@@ -122,6 +142,16 @@ class GLOBAL_STATE:
         
         # Save initial state
         self.save_state()
+
+    def ensure_loaded(self):
+        """Ensure the state has been initialized at least once.
+
+        FastAPI routes can call into the orchestrator without going through
+        the CLI entrypoint that normally calls `state.load()`. This guard
+        guarantees `state.logger` and pipeline flags exist.
+        """
+        if not hasattr(self, 'logger') or self.logger is None:
+            self.load()
 
     def setup_logger(self):
         """

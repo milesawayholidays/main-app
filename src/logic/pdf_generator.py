@@ -16,11 +16,11 @@ The module includes:
 
 from fpdf import FPDF
 
-from global_state import state
+from src.global_state import state
 
-from logic.trip_builder import Trip, RoundTrip, Route, TripOption
+from src.logic.trip_builder import Trip, RoundTrip, Route, TripOption
 
-from data_types.pdf_types import PDF_OBJ
+from src.data_types.pdf_types import PDF_OBJ
 
 DEFAULT_FOLDER = "pdfs"
 

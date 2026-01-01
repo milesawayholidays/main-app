@@ -6,7 +6,7 @@ from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 from google.auth.transport.requests import Request
 import datetime
 
-from global_state import state
+from src.global_state import state
 
 def Create_Service(client_secret_file, api_name, api_version, *scopes):
     state.logger.info(f'{client_secret_file}, {api_name}, {api_version}, {scopes}')

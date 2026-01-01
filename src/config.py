@@ -92,6 +92,55 @@ class Config:
         # can respond without requiring a full env/data load.
         self.VERSION = os.getenv("VERSION", "1.0.0")
 
+        # Internal init flags for API/runtime usage.
+        self._loaded = False
+        self._airport_mappings_loaded = False
+
+    def ensure_airport_mappings_loaded(self) -> None:
+        """Load airport mappings (CSV) once.
+
+        This is intentionally lighter than `load()` and does not validate secrets,
+        so API requests can prepare basic lookup tables without requiring the full
+        configuration to be present.
+        """
+
+        if self._airport_mappings_loaded:
+            return
+
+        df = pd.read_csv("data/airports.csv")
+        df = df[["municipality", "iata_code", "iso_country", "latitude_deg", "longitude_deg", "continent"]]
+        df = df.rename(
+            columns={
+                "municipality": "City",
+                "iata_code": "IATA",
+                "iso_country": "Country",
+                "latitude_deg": "Latitude",
+                "longitude_deg": "Longitude",
+                "continent": "Region",
+            }
+        )
+
+        self.IATA_CITY = df.set_index("IATA")["City"].to_dict()
+        self.IATA_COUNTRY = df.set_index("IATA")["Country"].to_dict()
+        self.IATA_LATITUDE = df.set_index("IATA")["Latitude"].to_dict()
+        self.IATA_LONGITUDE = df.set_index("IATA")["Longitude"].to_dict()
+        self.COUNTRY_REGION = df.set_index("Country")["Region"].to_dict()
+
+        biased_airports = os.getenv("BIASED_AIRPORTS", "").split(",")
+        for airport in biased_airports:
+            AIRPORT_TIER[airport.strip()] = "System-Biased-Cities"
+
+        self._airport_mappings_loaded = True
+
+    def ensure_loaded(self) -> None:
+        """Load the full configuration once."""
+
+        if self._loaded:
+            return
+
+        self.load()
+        self._loaded = True
+
     def load(self):
         """
         Load and validate all configuration settings from environment variables.
@@ -217,28 +266,7 @@ class Config:
 
         # Mappings
 
-        df = pd.read_csv("data/airports.csv")
-        df = df[["municipality", "iata_code", "iso_country", "latitude_deg", "longitude_deg", "continent"]]
-        df = df.rename(columns={
-            "municipality": "City",
-            "iata_code": "IATA",
-            "iso_country": "Country",
-            "latitude_deg": "Latitude",
-            "longitude_deg": "Longitude",
-            "continent": "Region"
-        })
-
-        # Create dictionaries for IATA to City and City to Country
-
-        self.IATA_CITY = df.set_index("IATA")["City"].to_dict()
-        self.IATA_COUNTRY = df.set_index("IATA")["Country"].to_dict()
-        self.IATA_LATITUDE = df.set_index("IATA")["Latitude"].to_dict()
-        self.IATA_LONGITUDE = df.set_index("IATA")["Longitude"].to_dict()
-        self.COUNTRY_REGION = df.set_index("Country")["Region"].to_dict()
-
-        biased_airports = os.getenv("BIASED_AIRPORTS", "").split(",")
-        for airport in biased_airports:
-            AIRPORT_TIER[airport.strip()] = "System-Biased-Cities"
+        self.ensure_airport_mappings_loaded()
             
 
         # Assert required environment variables
@@ -273,6 +301,9 @@ class Config:
         else:
             state.ensure_loaded()
             state.logger.info("Google Service Account loaded successfully")
+
+        # Mark as loaded for API usage.
+        self._loaded = True
 
 
 def assert_env_vars(*vars):

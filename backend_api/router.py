@@ -92,5 +92,3 @@ from backend_api.flights_system.flights_api import flights_router
 
 router.include_router(webhook_router, prefix="/webhook", tags=["Webhooks"])
 router.include_router(flights_router, prefix="/flights",  tags=["Flights System"])
-
-router.prefix = "/api"

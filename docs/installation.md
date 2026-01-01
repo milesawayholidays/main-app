@@ -10,11 +10,12 @@ This guide provides step-by-step instructions for installing and setting up the 
 
 Before installing, ensure you have the following:
 
-- **Python 3.8+** installed on your system
+- **Python 3.11+** installed on your system
 - **Git** for cloning the repository
 - **pip** for installing Python packages
 - **curl** for downloading data files
 - **make** utility (optional, for simplified setup)
+- **Node.js 18+** (only required for the React UI in `frontend/`)
 - Access to required API keys (details in configuration section)
 
 ---
@@ -28,8 +29,8 @@ The project includes a Makefile that automates the entire setup process.
 #### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/your-username/flightAlertsSystem.git
-cd flightAlertsSystem
+git clone https://github.com/AnnWann/flight-alerts-system.git
+cd flight-alerts-system
 ```
 
 #### 2. Complete Setup with Make
@@ -48,6 +49,19 @@ make run
 # Run without setup (if already configured)
 make run-a
 ```
+
+## Local Dev (API + React)
+
+This repo includes a FastAPI backend and a React frontend.
+
+```bash
+make local-setup
+make frontend-install
+make dev
+```
+
+- Backend runs on `http://localhost:4000`
+- Frontend runs on `http://localhost:5173` and proxies `/api/*` to the backend
 
 ---
 
@@ -141,27 +155,61 @@ The application should start and begin processing flight alerts based on your co
 
 ## Deployment
 
-### Production Deployment
+This project supports three common deployment modes:
+
+### Vercel Deployment
+
+This repo includes [vercel.json](../vercel.json) which deploys:
+
+- The FastAPI backend as a Vercel Python function via [api/index.py](../api/index.py)
+- The React frontend as a static build from `frontend/dist`
+
+Important behavior:
+
+- Backend routes are available under `/api/*` (example: `/api/flights/oneway`).
+- The FastAPI interactive docs (`/docs`) are intended for local dev; with the current Vercel routing they are not exposed.
+
+In Vercel, set the same environment variables you would put in `.env` (API keys, Google credentials, etc.).
+
+### Docker (Single Container: Backend Only)
+
+This runs only the backend API in Docker (similar to the command you were using).
 
 ```bash
-# Prepare for deployment (install dependencies, download data)
-make deploy-setup
-
-# Deploy the application
-make deploy
+make docker-image
+make run-docker
 ```
 
-### Docker Deployment
+Defaults:
+
+- Backend published at `http://localhost:3000` (host) → `:4000` (container)
+- Uses `--env-file .env`
+- Uses `--restart unless-stopped`
+- Uses `-m 300m --memory-swap 500m`
+
+Stop it with:
 
 ```bash
-# Build Docker image
-make docker-image
-
-# Run Docker container
-make run-docker
-
-# Stop Docker container
 make stop-docker
+```
+
+### Docker Compose (Backend + Frontend)
+
+This runs both backend and frontend in containers.
+
+```bash
+make compose-up
+```
+
+Defaults:
+
+- Backend: `http://localhost:3000`
+- Frontend: `http://localhost:5173`
+
+Stop it with:
+
+```bash
+make compose-down
 ```
 
 ---
@@ -172,14 +220,8 @@ make stop-docker
 # Run basic tests
 make test
 
-# Run all tests with summary
-make test-all
-
 # Run tests with verbose output
 make test-verbose
-
-# Run tests with coverage analysis
-make test-coverage
 ```
 
 ---

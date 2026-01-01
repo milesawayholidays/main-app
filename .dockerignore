@@ -22,11 +22,18 @@ venv/
 logs/
 *.sqlite3
 
+# Cached artifacts
+cached_*.json
+debug_*.json
+
 # Docs
-docs/
-README.md
+# Keep docs and README in the build context (small and useful for debugging)
 
 # Tests
 test/
 **/test*.py
 **/output_*.txt
+
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/

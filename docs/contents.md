@@ -2,7 +2,7 @@
 
 ## Overview
 
-This index provides an organized list of all major files and modules in the project, along with a brief description of their purpose. It is meant to serve as a reference for developers navigating the codebase.
+This index provides an organized list of major files and modules in the project, along with a brief description of their purpose. It is meant to serve as a reference for developers navigating the codebase.
 
 ---
 
@@ -25,6 +25,12 @@ This index provides an organized list of all major files and modules in the proj
 
 * **[`main.py`](./src/main.md)**
   Entry point of the application. Loads config, calls the runner, and handles top-level error reporting.
+
+* **FastAPI backend**
+  The REST API is implemented under `backend_api/` and mounted under the `/api` prefix.
+
+* **React frontend**
+  The UI is implemented under `frontend/`.
 
 * **[`alerts_runner.py`](./src/alerts_runner.md)**
   Core logic pipeline for fetching, filtering, formatting, generating, and sending flight alert data.
@@ -102,8 +108,8 @@ This index provides an organized list of all major files and modules in the proj
 
 * **[`data/airports.csv`](../data/airports.csv)**
   Source for mapping airport IATA codes to cities and countries.
-  
-  *Note: This file may not be available in the repository. Please refer to the [installation guide](./installation.md) for instructions on obtaining the required data files.*
+
+  *Note: This file is tracked in the repository. If you replace it locally, keep the same headers/format.*
 
 ---
 

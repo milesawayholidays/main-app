@@ -1,6 +1,6 @@
 # Flight Alert System Documentation
 
-Welcome to the comprehensive documentation for the **FlightAlertsGroup** intelligent flight alert system. This system automates the discovery, analysis, and distribution of flight deals through an intelligent pipeline that integrates multiple data sources and delivery channels, now with RESTful API capabilities.
+Welcome to the comprehensive documentation for the **flight-alerts-system** project. This system automates discovery and analysis of flight award availability and exposes a small REST API used by the React frontend.
 
 ---
 
@@ -16,7 +16,7 @@ Welcome to the comprehensive documentation for the **FlightAlertsGroup** intelli
 - [**Source Code Documentation**](src/index.md) - Complete technical documentation for all system components
 
 ### **🌐 API Documentation**
-- **Interactive API Docs** - Available at `http://localhost:8000/docs` when running the server
+- **Interactive API Docs** - Available at `http://localhost:4000/docs` when running the backend
 - **API Reference** - RESTful endpoints for programmatic access to flight data
 
 ---
@@ -26,11 +26,16 @@ Welcome to the comprehensive documentation for the **FlightAlertsGroup** intelli
 ### **Quick Start**
 ```bash
 # Clone and complete setup
-git clone <repo> && cd FlightAlertsGroup && make local-setup
+git clone https://github.com/AnnWann/flight-alerts-system.git
+cd flight-alerts-system
+make local-setup
 
 # Run the application
-make run
+make dev
 ```
+
+- Backend: `http://localhost:4000`
+- Frontend: `http://localhost:5173`
 
 ### **Docker Deployment**
 ```bash
@@ -48,7 +53,7 @@ make run-docker
 
 ## 🏗️ System Overview
 
-The flightAlertsSystem system consists of several key components:
+The system consists of several key components:
 
 - **🔍 Data Collection**: Fetches flight data from multiple airline sources
 - **📊 Analysis Engine**: Filters and ranks flight deals using intelligent algorithms

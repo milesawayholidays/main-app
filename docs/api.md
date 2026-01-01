@@ -1,159 +1,153 @@
 # API Documentation
 
-The FlightAlertsGroup system provides RESTful API endpoints for programmatic access to flight search and alert functionality.
+This repo exposes a FastAPI app under the `/api` prefix (local dev + Vercel).
 
 ## Base URL
-```
-http://milesawayholidays.com/api/ if deployed
 
-or 
-
-http://localhost:[PORT]/api/ if running locally
-```
+- Local backend (recommended): `http://localhost:4000/api`
+- Vercel deployment: `https://<your-vercel-domain>/api`
 
 ## Authentication
-Currently, the API does not require authentication. Consider implementing authentication for production use.
+
+No authentication is implemented.
 
 ## Endpoints
 
-### Flight Search
+### Health
 
-#### Region to Region Search
-Search for flights between geographical regions.
+**Endpoint:** `GET /api/health`
 
-**Endpoint:** `GET api/from-region-to-region`
-
-**Parameters:**
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| origin   | string | Yes | - | Origin region name (South America, North America, Europe, Asia, Oceania, Africa) |
-| destination | string | Yes | - | Destination region name |
-| start_date | string | No | - | Start date in YYYY-MM-DD format |
-| end_date | string | No | - | End date in YYYY-MM-DD format |
-| cabins | array[string] | No | - | economy, premium, business, first |
-| min_return_days | integer | No | 1 | Minimum return days |
-| max_return_days | integer | No | 60 | Maximum return days |
-| n | integer | No | 1 | Number of results |
-| deepness | integer | No | 1 | Search depth |
-
-**Example Request:**
-```http
-GET api/from-region-to-region?origin=South America&destination=North America&start_date=2025-08-15&cabins=economy&cabins=business&n=3
+**Response:**
+```json
+{ "status": "API is running", "version": "..." }
 ```
 
-**Example Response:**
+### Flights
+
+The flight search endpoints return a wrapper:
+
 ```json
 {
-  "statusCode": 200,
-  "message": "Alerts runner executed successfully."
+  "status": 200,
+  "data": {
+    "single_trips": [],
+    "round_trips": [],
+    "round_options": []
+  }
 }
 ```
 
-#### Country to World Search
-Search for flights from a specific country to worldwide destinations.
+Notes:
+- `single_trips` contains one-way trip rows (and also the outbound/return legs for round trips).
+- `round_trips` is the relational pairing between outbound and return.
+- `round_options` is the grouped, user-facing round-trip routes (one per city-pair / cabin).
 
-**Endpoint:** `GET api/from-country-to-world`
+#### One-way
 
-**Parameters:**
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| country | string | Yes | - | Country code for origin |
-| source | string | No | - | Airline source filter |
-| start_date | string | No | - | Start date in YYYY-MM-DD format |
-| end_date | string | No | - | End date in YYYY-MM-DD format |
-| cabins | array[string] | No | - | economy, premium, business, first |
-| min_return_days | integer | No | 1 | Minimum return days |
-| max_return_days | integer | No | 60 | Maximum return days |
-| n | integer | No | 1 | Number of results |
-| deepness | integer | No | 1 | Search depth |
+**Endpoint:** `GET /api/flights/oneway`
 
-**Example Request:**
-```http
-GET api/from-country-to-world?country=BR&source=azul&cabins=premium&n=5
-```
+**Query parameters (all optional unless noted):**
 
-## Error Responses
+| Parameter | Type | Description |
+|---|---:|---|
+| origin_regions | list[string] | Regions to include (repeat the param for multiple). Accepts region **codes** (`NA`) and **names** (`North America`). |
+| destination_regions | list[string] | Same as `origin_regions`. |
+| origin_countries | list[string] | Country names as used by `data/airports.csv` mapping. |
+| destination_countries | list[string] | Country names as used by `data/airports.csv` mapping. |
+| origin_cities | list[string] | City names as used by `data/airports.csv` mapping. |
+| destination_cities | list[string] | City names as used by `data/airports.csv` mapping. |
+| origin_airports | list[string] | IATA codes (e.g., `YYZ`). |
+| destination_airports | list[string] | IATA codes. |
+| sources | list[string] | `azul`, `smiles`, `qantas` |
+| cabins | list[string] | Cabin **names** (`economy`, `premium`, `business`, `first`) or cabin **codes** (`y`, `w`, `j`, `f`). |
+| min_cost | float | Minimum total cost filter. |
+| max_cost | float | Maximum total cost filter. |
+| min_remaining_seats | int | Minimum remaining seats filter. |
+| start_date | string | `YYYY-MM-DD` |
+| end_date | string | `YYYY-MM-DD` |
+| n | int | Results per **region-pair per cabin**. Server clamps to `1..8` (default `1`). |
+| deepness | int | Seats.aero pagination depth. Server clamps to `1..3` (default `1`). |
 
-### 400 Bad Request
-```json
-{
-  "statusCode": 400,
-  "message": "Origin and destination must be specified."
-}
-```
+**Example (cURL):**
 
-### 500 Internal Server Error
-```json
-{
-  "statusCode": 500,
-  "message": "Error description here"
-}
-```
-
-## Region Names (for API parameters)
-- `South America`
-- `North America` 
-- `Europe`
-- `Asia`
-- `Oceania`
-- `Africa`
-
-## Region Codes (enum values)
-- `SA` - South America
-- `NA` - North America
-- `EU` - Europe
-- `AS` - Asia
-- `OC` - Oceania
-- `AF` - Africa
-
-## Cabin Classes
-- `economy` - Economy class
-- `premium` - Economy class
-- `business` - Business class  
-- `first` - First class
-
-## Usage Examples
-
-### Python with requests
-```python
-import requests
-
-# Region to region search
-response = requests.get('http://localhost:8000/api/from-region-to-region', params={
-    'origin': 'South America',
-    'destination': 'North America',
-    'start_date': '2025-08-15',
-    'cabins': ['economy', 'business'],  
-    'n': 3
-})
-
-print(response.json())
-```
-
-### cURL
 ```bash
-curl -X GET "http://localhost:8000/api/from-region-to-region?origin=South%20America&destination=North%20America&cabins=economy&n=3" \
-     -H "Content-Type: application/json"
+curl "http://localhost:4000/api/flights/oneway?origin_regions=NA&destination_regions=AS&cabins=business&n=2&deepness=1"
 ```
 
-### JavaScript/Fetch
-```javascript
-const response = await fetch('/from-region-to-region?origin=South%20America&destination=North%20America&cabins=economy&n=3');
-const data = await response.json();
-console.log(data);
+#### Round-trip
+
+**Endpoint:** `GET /api/flights/roundtrip`
+
+Same parameters as one-way, plus:
+
+| Parameter | Type | Description |
+|---|---:|---|
+| min_return_days | int | Minimum trip length in days. |
+| max_return_days | int | Maximum trip length in days. |
+
+**Example (cURL):**
+
+```bash
+curl "http://localhost:4000/api/flights/roundtrip?origin_regions=EU&destination_regions=NA&cabins=business&min_return_days=5&max_return_days=14&n=1"
 ```
+
+### WhatsApp Post Generation
+
+**Endpoint:** `POST /api/get-post`
+
+This generates WhatsApp post text from selected rows.
+
+**Request body:**
+```json
+{
+  "rows": [
+    {
+      "id": "...",
+      "origin_city": "...",
+      "origin_country": "...",
+      "destination_city": "...",
+      "destination_country": "...",
+      "departure_date": "...",
+      "return_date": "...",
+      "cabin": "...",
+      "program": "...",
+      "mileage_cost": "...",
+      "taxes": "...",
+      "total_cost": "...",
+      "remaining_seats": "...",
+      "booking_link": "..."
+    }
+  ]
+}
+```
+
+**Response:**
+```json
+{ "status": 200, "data": { "posts": [], "skipped": [] } }
+```
+
+## Regions / Sources / Cabins
+
+### Regions
+- Names: `North America`, `South America`, `Africa`, `Asia`, `Europe`, `Oceania`
+- Codes: `NA`, `SA`, `AF`, `AS`, `EU`, `OC`
+
+`origin_regions` / `destination_regions` accept either form (case-insensitive).
+
+### Sources
+- `azul`
+- `smiles`
+- `qantas`
+
+### Cabins
+- Names: `economy`, `premium`, `business`, `first`
+- Codes: `y`, `w`, `j`, `f`
 
 ## Interactive Documentation
-When the server is running, you can access interactive API documentation at:
-- **Swagger UI**: `http://localhost:8000/docs`
-- **ReDoc**: `http://localhost:8000/redoc`
 
-## Rate Limiting
-Currently, no rate limiting is implemented. Consider adding rate limiting for production deployment.
+When the backend is running locally you can use:
 
-## Production Considerations
-- Implement authentication/authorization
-- Add rate limiting
-- Enable CORS for web applications
-- Use HTTPS in production
-- Monitor API usage and performance
+- Swagger UI: `http://localhost:4000/docs`
+- ReDoc: `http://localhost:4000/redoc`
+
+Note: with the current Vercel routing (`/api/*` only), these interactive docs routes are not exposed on the deployed domain.

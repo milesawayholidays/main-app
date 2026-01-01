@@ -1,6 +1,10 @@
 # ✈️ Flight Alert System — Usage Guide
 
-This project automates the process of identifying and promoting the best round-trip mileage deals. It can be run in two modes: **standalone mode** for automated execution, or **API mode** for programmatic access via RESTful endpoints.
+This project can be used in three main ways:
+
+- **Dev mode (local)**: run FastAPI + React with hot reload.
+- **Vercel deployment**: deploy backend under `/api/*` and a static frontend.
+- **Docker deployment**: run backend-only, or backend+frontend with compose.
 
 ---
 
@@ -8,7 +12,7 @@ This project automates the process of identifying and promoting the best round-t
 
 ### ✅ Install Dependencies
 
-Make sure you have Python 3.10+ and run the complete setup:
+Make sure you have **Python 3.11+**.
 
 ```bash
 # Complete setup (virtual environment, dependencies, data)
@@ -50,37 +54,87 @@ RESULT_SHEET_ID=your_result_sheet_id                 # string - Google Sheets ID
 
 ## 🚀 Running the System
 
-### **Running the Application**
-
-The application can run in different modes depending on your configuration. Both commands start the same application:
+### Standalone (pipeline)
 
 ```bash
-# Run with complete setup (recommended for first run)
+# First run (creates venv, installs deps, downloads data)
 make run
 
-# Run without setup (if already configured)
+# Run without setup (when already configured)
 make run-a
 ```
 
-**Note:** The application automatically determines whether to run in standalone mode or start the FastAPI server based on your configuration.
+### API + React UI (local dev)
 
-**Access the API:**
-- API Base URL: `http://localhost:8000`
-- Interactive Documentation: `http://localhost:8000/docs`
-- Alternative Documentation: `http://localhost:8000/redoc`
-
-### **Option 3: Docker**
-Containerized deployment for easy scaling and deployment.
+The recommended local dev setup is:
 
 ```bash
-# Build Docker image
+make local-setup
+make frontend-install
+make dev
+```
+
+This runs:
+
+- FastAPI backend on `http://localhost:4000`
+- React (Vite) frontend on `http://localhost:5173`
+
+The frontend proxies `/api/*` to the backend.
+
+### Vercel (deployment)
+
+Vercel is configured via `vercel.json` to:
+
+- Route `/api/*` to the FastAPI app (via `api/index.py`)
+- Serve the React build from `frontend/dist`
+
+Usage on Vercel:
+
+- Frontend: `https://<your-vercel-domain>/`
+- API: `https://<your-vercel-domain>/api/flights/oneway` (and `/api/flights/roundtrip`)
+
+Notes:
+
+- The FastAPI interactive docs (`/docs`) are meant for local dev; with the current Vercel routing they are not exposed.
+- Configure API keys and Google credentials in Vercel project Environment Variables (same names you use in `.env`).
+
+### Docker
+
+#### Backend-only container (single `docker run`)
+
+```bash
 make docker-image
-
-# Run Docker container
 make run-docker
+```
 
-# Stop Docker container
+Defaults:
+
+- Host port `3000` → container port `4000`
+- Uses `.env` via `--env-file`
+- Uses `--restart unless-stopped`
+- Uses `-m 300m --memory-swap 500m`
+
+Stop:
+
+```bash
 make stop-docker
+```
+
+#### Docker Compose (backend + frontend)
+
+```bash
+make compose-up
+```
+
+Defaults:
+
+- Backend: `http://localhost:3000`
+- Frontend: `http://localhost:5173`
+
+Stop:
+
+```bash
+make compose-down
 ```
 
 ---
@@ -91,28 +145,27 @@ Once the FastAPI server is running, you can use the RESTful endpoints to trigger
 
 ### **API Endpoints**
 
-#### **Region to Region Search**
-Search for flights between geographical regions.
+All API routes are under the `/api` prefix.
+
+#### **One-way flights**
 
 ```http
-GET /from-region-to-region?origin=South America&destination=North America&start_date=2025-08-15&cabins=Economy&n=3
+GET /api/flights/oneway?origin_regions=NA&destination_regions=AS&cabins=business&n=2&deepness=1
 ```
 
-**Parameters:**
-- `origin` (required): Origin region name (South America, North America, Europe, Asia, Oceania, Africa)
-- `destination` (required): Destination region name
-- `start_date` (optional): Start date in YYYY-MM-DD format
-- `end_date` (optional): End date in YYYY-MM-DD format
-- `cabins` (optional): Cabin classes (Economy/Y, Business/J, First/F) - can specify multiple
-- `min_return_days` (optional): Minimum return days (default: 1)
-- `max_return_days` (optional): Maximum return days (default: 60)
-- `n` (optional): Number of results (default: 1)
-- `deepness` (optional): Search depth (default: 1)
+#### **Round-trip flights**
 
-#### **Country to World Search**
 ```http
-GET /from-country-to-world?country=BR&source=azul&cabins=Economy&n=5
+GET /api/flights/roundtrip?origin_regions=EU&destination_regions=NA&cabins=business&min_return_days=5&max_return_days=14&n=1
 ```
+
+Notes:
+
+- `origin_regions` / `destination_regions` accept region **codes** (`NA`) or region **names** (`North America`), case-insensitive.
+- `cabins` accepts cabin **names** (`economy`, `premium`, `business`, `first`) or cabin **codes** (`y`, `w`, `j`, `f`).
+- `sources` accepts: `azul`, `smiles`, `qantas`.
+- `n` is capped server-side to `1..8`.
+- `deepness` is capped server-side to `1..3`.
 
 ### **API Usage Examples**
 
@@ -120,67 +173,60 @@ GET /from-country-to-world?country=BR&source=azul&cabins=Economy&n=5
 ```python
 import requests
 
-# Region to region search
-response = requests.get('http://localhost:8000/from-region-to-region', params={
-    'origin': 'South America',
-    'destination': 'North America',
-    'start_date': '2025-08-15',
-    'cabins': ['Economy', 'Business'],  # Can use full names or codes: ['Y', 'J']
-    'n': 3
+# One-way example
+response = requests.get('http://localhost:4000/api/flights/oneway', params={
+    'origin_regions': ['NA'],
+    'destination_regions': ['AS'],
+    'cabins': ['business'],
+    'n': 2,
+    'deepness': 1,
 })
 
 result = response.json()
-print(f"Status: {result['statusCode']}")
-print(f"Message: {result['message']}")
+print(result['status'])
+print(result['data'].keys())
 ```
 
 #### **cURL**
 ```bash
-curl -X GET "http://localhost:8000/from-region-to-region?origin=South%20America&destination=North%20America&cabins=Economy&n=3" \
-     -H "Content-Type: application/json"
+curl "http://localhost:4000/api/flights/roundtrip?origin_regions=EU&destination_regions=NA&cabins=business&min_return_days=5&max_return_days=14&n=1"
 ```
 
 #### **JavaScript/Fetch**
 ```javascript
-const response = await fetch('/from-region-to-region?origin=South%20America&destination=North%20America&cabins=Economy&n=3');
+const response = await fetch('/api/flights/oneway?origin_regions=NA&destination_regions=AS&cabins=business&n=2');
 const data = await response.json();
 console.log(data);
 ```
 
 ### **API Response Format**
+
 ```json
 {
-  "statusCode": 200,
-  "message": "Alerts runner executed successfully."
+    "status": 200,
+    "data": {
+        "single_trips": [],
+        "round_trips": [],
+        "round_options": []
+    }
 }
 ```
 
-For detailed API documentation, visit the [API Documentation](api.md) or access the interactive docs at `http://localhost:8000/docs` when the server is running.
+For detailed API documentation, visit the [API Documentation](api.md) or use the interactive docs at `http://localhost:4000/docs`.
 
 ---
 
-## 📋 Configuration Details
+## 📋 What Standalone Mode Does
 
-## 🏃 Running the System
+When you run the pipeline (`make run` / `make run-a`), it:
 
-Run the main script:
-
-```bash
-make run
-```
-
-It will:
-
-1. Load config and global state.
-2. Trigger the full `alerts_runner()` pipeline.
-3. Fetch top N round-trips using external APIs.
-4. Calculate total and selling prices with exchange rates and markups.
-5. Generate:
-
-   * WhatsApp post text
-   * A PDF for each route
-6. Write top combos to Google Sheets.
-7. Email the admin with all PDFs attached.
+1. Loads config and global state.
+2. Runs the `alerts_runner()` pipeline.
+3. Fetches flight availability and ranks it.
+4. Calculates costs (exchange rates + markups).
+5. Generates outputs (WhatsApp post text, PDFs).
+6. Writes results to Google Sheets.
+7. Emails the admin with PDFs attached.
 
 ---
 
@@ -188,41 +234,20 @@ It will:
 
 ```
 .
-├── main.py
-├── config.py
-├── global_state.py
-├── src/
-│   ├── currencies/
-│   │   ├── cash.py
-│   │   └── mileage.py
-    ├── logic/
-│   │   ├── filter.py
-│   │   ├── pdf_generator.py
-│   │   └── trip_builder.py
-│   ├── data_types/
-│   │   ├── enums.py
-│   │   ├── images.py
-│   │   ├── pdf_types.py
-│   │   └── summary_objs.py
-│   └── services/
-│       ├── gmail.py
-│       ├── google_sheets.py
-│       ├── openAI.py
-│       ├── seats_aero.py
-│       ├── unsplash.py
-│       └── whatsapp.py
-├── alerts_runner.py
-├── requirements.txt
-├── .env
-└── data/
-    └── airports.csv
+├── api/                      # Vercel entrypoint (imports FastAPI app)
+├── backend_api/              # FastAPI routers (/api/*)
+├── src/                      # Core pipeline + services
+├── frontend/                 # React UI (Vite)
+├── data/airports.csv         # Airport mapping dataset
+├── public/                   # Static assets served by FastAPI
+└── docs/                     # Documentation
 ```
 
 ---
 
 ## 🥪 Tips for Testing Locally
 
-* Set fewer days and smaller `N` in your `.env` to test faster.
+* Use smaller date ranges and smaller `n` values in your API request / UI to test faster.
 * Comment out email sending and Sheets writing to isolate bugs.
 * Monitor logs in real time via `state.logger`.
 

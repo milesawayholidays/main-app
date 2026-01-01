@@ -7,15 +7,26 @@ DATA_DIR := data
 TEST_DIR := test
 AIRPORTS_URL := https://davidmegginson.github.io/ourairports-data/airports.csv
 DOCKERPROJECT := alertsmilesaway/main-app
+DOCKER_CONTAINER := app
+BACKEND_HOST_PORT ?= 3000
+FRONTEND_HOST_PORT ?= 5173
 
-.PHONY: help download-data create-logs setup_venv activate_venv install-locally local-setup run run-a \
-	backend-dev backend-run frontend-install frontend-dev frontend-build frontend-preview dev \
-	install-deploy deploy-setup deploy docker-image run-docker stop-docker test-clear test test-verbose clean
+COMPOSE := docker compose
+
+.PHONY: \
+	help download-data create-logs \
+	setup_venv install-locally local-setup run run-a \
+	backend-dev backend-run \
+	frontend-install frontend-dev frontend-build frontend-preview dev \
+	docker-image run-docker run-docker-a stop-docker \
+	compose-build compose-up compose-down compose-logs \
+	test-clear test test-verbose test-debug test-breakpoint test-specific \
+	clean
 
 # General Commands
 
 help:
-	@echo "Makefile for FlightAlertsGroup"
+	@echo "Makefile for flight-alerts-system"
 	@echo "Available commands:"
 	@echo "  make download-data       - Download airports data"
 	@echo "  make create-logs         - Create logs directory"
@@ -31,19 +42,19 @@ help:
 	@echo "  make frontend-build      - Build React frontend"
 	@echo "  make frontend-preview    - Preview built frontend"
 	@echo "  make dev                 - Run backend + frontend together (parallel)"
-	@echo "  make install-deploy      - Install dependencies for deployment"
-	@echo "  make deploy-setup        - Prepare for deployment"
-	@echo "  make deploy              - Deploy the application"
 	@echo "  make docker-image        - Build Docker image"
 	@echo "  make run-docker          - Run Docker container"
+	@echo "  make run-docker-a        - Run Docker container (attached)"
 	@echo "  make stop-docker         - Stop Docker container"
+	@echo "  make compose-build       - Build backend+frontend with docker compose"
+	@echo "  make compose-up          - Start backend+frontend with docker compose"
+	@echo "  make compose-down        - Stop docker compose stack"
+	@echo "  make compose-logs        - Tail docker compose logs"
 	@echo "  make test                - Run tests"
-	@echo "  make test-all            - Run all tests with summary"
 	@echo "  make test-verbose        - Run tests with verbose output"
 	@echo "  make test-debug          - Run tests with Python debugger (pdb)"
 	@echo "  make test-breakpoint     - Run tests with breakpoint support"
 	@echo "  make test-specific       - Run specific test (use TEST=test.path.to.test)"
-	@echo "  make test-coverage       - Run tests with coverage analysis"
 	@echo "  make clean               - Clean up generated files"
 
 download-data:
@@ -106,19 +117,6 @@ dev:
 	@echo "Tip: stop with Ctrl+C"
 	+$(MAKE) -j2 backend-dev frontend-dev
 
-# Deployment Commands
-
-install-deploy:
-	@echo "Installing dependencies for deployment..."
-	$(PYTHON) -m pip install --upgrade pip && $(PYTHON) -m pip install -r requirements.txt
-
-deploy-setup: download-data create-logs install-deploy
-
-deploy: deploy-setup
-	@set -e
-	@echo "Running FlightAlertsGroup..."
-	$(PYTHON) src/main.py
-
 # Docker Commands
 
 docker-image: 
@@ -128,18 +126,45 @@ docker-image:
 
 run-docker: docker-image
 	@echo "Running Docker container for FlightAlertsGroup..."
-	docker run -d -p 3000:4000 --env-file .env --name main-app $(DOCKERPROJECT):latest
+	docker run -d -m 300m --memory-swap 500m --restart unless-stopped \
+		--env-file $(ENV_FILE) -p $(BACKEND_HOST_PORT):4000 --name $(DOCKER_CONTAINER) \
+		$(DOCKERPROJECT):latest
 	@echo "Docker container is running."
 
 run-docker-a: 
 	@echo "Running Docker container for FlightAlertsGroup (attached)..."
-	docker run -it -p 3000:4000 --env-file .env --name main-app $(DOCKERPROJECT):latest
+	docker run -it -m 300m --memory-swap 500m --restart unless-stopped \
+		--env-file $(ENV_FILE) -p $(BACKEND_HOST_PORT):4000 --name $(DOCKER_CONTAINER) \
+		$(DOCKERPROJECT):latest
 	@echo "Docker container is running."
 
 stop-docker:
 	@echo "Stopping Docker container..."
-	docker stop flight_alerts_group || true
+	docker stop $(DOCKER_CONTAINER) || true
+	docker rm $(DOCKER_CONTAINER) || true
 	@echo "Docker container stopped."
+
+
+# Docker Compose Commands
+
+compose-build:
+	@echo "Building backend + frontend with docker compose..."
+	$(COMPOSE) build
+
+compose-up:
+	@echo "Starting backend + frontend with docker compose..."
+	BACKEND_HOST_PORT=$(BACKEND_HOST_PORT) FRONTEND_HOST_PORT=$(FRONTEND_HOST_PORT) ENV_FILE=$(ENV_FILE) \
+		$(COMPOSE) up -d --build
+	@echo "Backend:  http://localhost:$(BACKEND_HOST_PORT)"
+	@echo "Frontend: http://localhost:$(FRONTEND_HOST_PORT)"
+
+compose-down:
+	@echo "Stopping docker compose stack..."
+	$(COMPOSE) down
+
+compose-logs:
+	@echo "Tailing docker compose logs..."
+	$(COMPOSE) logs -f --tail=200
 
 
 # Test Commands
@@ -169,12 +194,9 @@ test-specific:
 	@echo "🎯 Running Specific Test (use TEST=test.path.to.test)..."
 	$(ACTIVATE) && $(PYTHON) -m unittest $(TEST) -v
 
- 
-
 # Clean Commands
 
 clean:
 	rm -rf __pycache__ */__pycache__ .pytest_cache .mypy_cache *.pyc logs/
 	rm -rf htmlcov/ .coverage
 	rm -f $(DATA_DIR)/airports.csv
-	rm -rf $(TEST_RESULTS_DIR)/ 

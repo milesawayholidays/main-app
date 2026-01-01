@@ -1,3 +1,5 @@
+import os
+
 import fastapi
 from fastapi import Depends
 from fastapi.staticfiles import StaticFiles
@@ -11,4 +13,6 @@ APP.include_router(
 	tags=["Flight Alerts"],
 	dependencies=[Depends(ensure_request_initialized)],
 )
-APP.mount("/public", StaticFiles(directory="public"), name="root")
+
+if os.path.isdir("public"):
+	APP.mount("/public", StaticFiles(directory="public"), name="root")

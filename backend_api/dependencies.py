@@ -45,13 +45,16 @@ def ensure_request_initialized(request: Request) -> None:
             cash_handler.load(target_currency=config.CURRENCY, api_key=config.EXCHANGE_RATE_API_KEY)
             state.update_flag("cashModInitialized")
 
-        if not hasattr(sheets_handler, "client"):
-            if not getattr(config, "GOOGLE_SERVICE_ACCOUNT", None):
-                raise ValueError("Missing GOOGLE_SERVICE_ACCOUNT; cannot initialize Google Sheets")
-            sheets_handler.load(config.GOOGLE_SERVICE_ACCOUNT)
-            state.update_flag("googleSheetsModInitialized")
-
         if not getattr(mileage_handler, "mileage_values", None):
+            # When using the built-in test mileage table, we can skip Google Sheets entirely.
+            # This is useful for low-cost demo deployments (e.g. Render Free).
+            if config.MILEAGE_SPREADSHEET_ID != "test":
+                if not hasattr(sheets_handler, "client"):
+                    if not getattr(config, "GOOGLE_SERVICE_ACCOUNT", None):
+                        raise ValueError("Missing GOOGLE_SERVICE_ACCOUNT; cannot initialize Google Sheets")
+                    sheets_handler.load(config.GOOGLE_SERVICE_ACCOUNT)
+                    state.update_flag("googleSheetsModInitialized")
+
             mileage_handler.load(
                 mileage_spreadsheet_id=config.MILEAGE_SPREADSHEET_ID,
                 mileage_worksheet_name=config.MILEAGE_WORKSHEET_NAME,

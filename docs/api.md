@@ -1,11 +1,11 @@
 # API Documentation
 
-This repo exposes a FastAPI app under the `/api` prefix (local dev + Vercel).
+This repo exposes a FastAPI app under the `/api` prefix.
 
 ## Base URL
 
 - Local backend (recommended): `http://localhost:4000/api`
-- Vercel deployment: `https://<your-vercel-domain>/api`
+- Docker / Render (single service): `https://<your-domain>/api`
 
 ## Authentication
 
@@ -150,4 +150,7 @@ When the backend is running locally you can use:
 - Swagger UI: `http://localhost:4000/docs`
 - ReDoc: `http://localhost:4000/redoc`
 
-Note: with the current Vercel routing (`/api/*` only), these interactive docs routes are not exposed on the deployed domain.
+In production (Docker/Render), these are available at:
+
+- Swagger UI: `https://<your-domain>/docs`
+- ReDoc: `https://<your-domain>/redoc`

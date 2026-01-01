@@ -8,8 +8,7 @@ TEST_DIR := test
 AIRPORTS_URL := https://davidmegginson.github.io/ourairports-data/airports.csv
 DOCKERPROJECT := alertsmilesaway/main-app
 DOCKER_CONTAINER := app
-BACKEND_HOST_PORT ?= 3000
-FRONTEND_HOST_PORT ?= 5173
+APP_HOST_PORT ?= 4000
 
 COMPOSE := docker compose
 
@@ -46,8 +45,8 @@ help:
 	@echo "  make run-docker          - Run Docker container"
 	@echo "  make run-docker-a        - Run Docker container (attached)"
 	@echo "  make stop-docker         - Stop Docker container"
-	@echo "  make compose-build       - Build backend+frontend with docker compose"
-	@echo "  make compose-up          - Start backend+frontend with docker compose"
+	@echo "  make compose-build       - Build app with docker compose"
+	@echo "  make compose-up          - Start app with docker compose"
 	@echo "  make compose-down        - Stop docker compose stack"
 	@echo "  make compose-logs        - Tail docker compose logs"
 	@echo "  make test                - Run tests"
@@ -127,14 +126,14 @@ docker-image:
 run-docker: docker-image
 	@echo "Running Docker container for FlightAlertsGroup..."
 	docker run -d -m 300m --memory-swap 500m --restart unless-stopped \
-		--env-file $(ENV_FILE) -p $(BACKEND_HOST_PORT):4000 --name $(DOCKER_CONTAINER) \
+		--env-file $(ENV_FILE) -p $(APP_HOST_PORT):4000 --name $(DOCKER_CONTAINER) \
 		$(DOCKERPROJECT):latest
 	@echo "Docker container is running."
 
 run-docker-a: 
 	@echo "Running Docker container for FlightAlertsGroup (attached)..."
 	docker run -it -m 300m --memory-swap 500m --restart unless-stopped \
-		--env-file $(ENV_FILE) -p $(BACKEND_HOST_PORT):4000 --name $(DOCKER_CONTAINER) \
+		--env-file $(ENV_FILE) -p $(APP_HOST_PORT):4000 --name $(DOCKER_CONTAINER) \
 		$(DOCKERPROJECT):latest
 	@echo "Docker container is running."
 
@@ -148,15 +147,15 @@ stop-docker:
 # Docker Compose Commands
 
 compose-build:
-	@echo "Building backend + frontend with docker compose..."
+	@echo "Building app with docker compose..."
 	$(COMPOSE) build
 
 compose-up:
-	@echo "Starting backend + frontend with docker compose..."
-	BACKEND_HOST_PORT=$(BACKEND_HOST_PORT) FRONTEND_HOST_PORT=$(FRONTEND_HOST_PORT) ENV_FILE=$(ENV_FILE) \
+	@echo "Starting app with docker compose..."
+	APP_HOST_PORT=$(APP_HOST_PORT) ENV_FILE=$(ENV_FILE) \
 		$(COMPOSE) up -d --build
-	@echo "Backend:  http://localhost:$(BACKEND_HOST_PORT)"
-	@echo "Frontend: http://localhost:$(FRONTEND_HOST_PORT)"
+	@echo "App: http://localhost:$(APP_HOST_PORT)"
+	@echo "API: http://localhost:$(APP_HOST_PORT)/api/health"
 
 compose-down:
 	@echo "Stopping docker compose stack..."

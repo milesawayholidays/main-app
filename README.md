@@ -146,16 +146,14 @@ make stop-docker
 
 ---
 
-## ▲ Vercel Deployment (React + Python)
+## Render Deployment (Single Service)
 
-This repo is now set up to deploy to **Vercel** with:
+This repo is set up to deploy as **one Render web service**:
 
-- A **React** frontend in `frontend/` (Vite)
-- A **Python** backend served as a Vercel Python Function from `api/index.py`
+- FastAPI serves the API under `/api/*`
+- The built React frontend is served at `/` (SPA fallback enabled)
 
 ### Backend routes
-
-The FastAPI application is exposed under:
 
 - `GET /api/health`
 - `GET /api/flights/oneway`
@@ -179,12 +177,11 @@ npm run dev
 
 The Vite dev server proxies `/api/*` to `http://localhost:4000`.
 
-### Vercel configuration
+### Render setup
 
-See `vercel.json` for:
-
-- routing all `/api/*` requests to the Python function (`api/index.py`)
-- serving the built frontend (`frontend/dist`) with an SPA fallback
+- Use the blueprint in `render.yaml` (recommended).
+- Set your environment variables in Render (same keys as your `.env`).
+- Render will provide `PORT`; the container listens on it automatically.
 
 ---
 

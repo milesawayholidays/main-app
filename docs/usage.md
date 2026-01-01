@@ -3,8 +3,8 @@
 This project can be used in three main ways:
 
 - **Dev mode (local)**: run FastAPI + React with hot reload.
-- **Vercel deployment**: deploy backend under `/api/*` and a static frontend.
-- **Docker deployment**: run backend-only, or backend+frontend with compose.
+- **Docker deployment**: run a single container that serves both the API and the built frontend.
+- **Render deployment**: same as Docker (single service).
 
 ---
 
@@ -81,26 +81,9 @@ This runs:
 
 The frontend proxies `/api/*` to the backend.
 
-### Vercel (deployment)
-
-Vercel is configured via `vercel.json` to:
-
-- Route `/api/*` to the FastAPI app (via `api/index.py`)
-- Serve the React build from `frontend/dist`
-
-Usage on Vercel:
-
-- Frontend: `https://<your-vercel-domain>/`
-- API: `https://<your-vercel-domain>/api/flights/oneway` (and `/api/flights/roundtrip`)
-
-Notes:
-
-- The FastAPI interactive docs (`/docs`) are meant for local dev; with the current Vercel routing they are not exposed.
-- Configure API keys and Google credentials in Vercel project Environment Variables (same names you use in `.env`).
-
 ### Docker
 
-#### Backend-only container (single `docker run`)
+#### Single container (frontend + API)
 
 ```bash
 make docker-image
@@ -109,7 +92,7 @@ make run-docker
 
 Defaults:
 
-- Host port `3000` → container port `4000`
+- Host port `4000` → container port `4000`
 - Uses `.env` via `--env-file`
 - Uses `--restart unless-stopped`
 - Uses `-m 300m --memory-swap 500m`
@@ -120,7 +103,7 @@ Stop:
 make stop-docker
 ```
 
-#### Docker Compose (backend + frontend)
+#### Docker Compose (single service)
 
 ```bash
 make compose-up
@@ -128,13 +111,22 @@ make compose-up
 
 Defaults:
 
-- Backend: `http://localhost:3000`
-- Frontend: `http://localhost:5173`
+- App: `http://localhost:4000`
+- API: `http://localhost:4000/api/health`
 
 Stop:
 
 ```bash
 make compose-down
+
+### Render (deployment)
+
+Render deploys the same single Docker service:
+
+- UI: `https://<your-domain>/`
+- API: `https://<your-domain>/api/health`
+
+Use `render.yaml` and set the same environment variables you would put in `.env`.
 ```
 
 ---
@@ -234,7 +226,6 @@ When you run the pipeline (`make run` / `make run-a`), it:
 
 ```
 .
-├── api/                      # Vercel entrypoint (imports FastAPI app)
 ├── backend_api/              # FastAPI routers (/api/*)
 ├── src/                      # Core pipeline + services
 ├── frontend/                 # React UI (Vite)

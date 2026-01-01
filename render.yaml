@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: flight-alerts-system
+    env: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    autoDeploy: true
+    healthCheckPath: /api/health
+    envVars:
+      - key: MODE
+        value: production
+      # Render injects PORT automatically for Docker web services.
+      # Add the rest of your secrets in the Render dashboard:
+      # OPENAI_API_KEY, SEATS_AERO_API_KEY, GOOGLE_SERVICE_ACCOUNT, etc.

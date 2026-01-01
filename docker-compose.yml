@@ -1,29 +1,16 @@
 services:
-  backend:
+  app:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: ${BACKEND_CONTAINER_NAME:-app-backend}
+    container_name: ${APP_CONTAINER_NAME:-flight-alerts-app}
     env_file:
       - ${ENV_FILE:-.env}
     environment:
       - PORT=4000
       - MODE=production
     ports:
-      - "${BACKEND_HOST_PORT:-3000}:4000"
+      - "${APP_HOST_PORT:-4000}:4000"
     restart: unless-stopped
-    mem_limit: 300m
-    memswap_limit: 500m
-
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: ${FRONTEND_CONTAINER_NAME:-app-frontend}
-    depends_on:
-      - backend
-    ports:
-      - "${FRONTEND_HOST_PORT:-5173}:80"
-    restart: unless-stopped
-    mem_limit: 300m
-    memswap_limit: 500m
+    mem_limit: 600m
+    memswap_limit: 900m

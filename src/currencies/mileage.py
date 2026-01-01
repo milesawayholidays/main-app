@@ -5,14 +5,11 @@ It provides methods to access mileage values by program name.
 It includes error handling for fetching values and accessing specific mileage programs.
 It is part of a larger system that manages flight alerts and related services.
 '''
-try:
-    from ..global_state import state
-    from ..data_types.enums import SOURCE
-    from ..services.google_sheets import handler as sheets_handler
-except ImportError:
-    from global_state import state
-    from data_types.enums import SOURCE
-    from services.google_sheets import handler as sheets_handler
+import numpy as np
+
+from src.global_state import state
+from src.data_types.enums import SOURCE
+from src.services.google_sheets import handler as sheets_handler
 
 class Mileage:
     def __init__(self):
@@ -52,7 +49,7 @@ class Mileage:
         state.logger.info(f"Mileage handler initialized and mileage values fetched with length: {len(self.mileage_values)}")
 
 
-    def get_mileage_value(self, program: str) -> int:
+    def get_mileage_value(self, program: str) -> int | None:
         """
         Retrieve the mileage value for a specific program.
         Args:
@@ -64,9 +61,21 @@ class Mileage:
         """
         if program in self.mileage_values:
             return self.mileage_values[program]
-        else:
-            state.logger.warning(f"Mileage value for program '{program}' not found.")
-            raise ValueError(f"Mileage value for program '{program}' not found.")
+
+        # For API usage we prefer to skip unknown programs instead of crashing the request.
+        state.logger.warning(f"Mileage value for program '{program}' not found; skipping rows for this program.")
+        return None
         
+    def get_mileage_value_vectorised(self, programs: list[str]):
+        """
+        Retrieve mileage values for a list of programs.
+        Args:
+            programs (list[str]): List of mileage program names
+        Returns:
+            list[int]: List of mileage values corresponding to the specified programs
+        """
+        arr = np.asarray(programs, dtype=str)
+        vectorised_fn = np.vectorize(lambda x: self.get_mileage_value(x), otypes=[object])
+        return vectorised_fn(arr)
     
 handler = Mileage()

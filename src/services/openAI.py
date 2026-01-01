@@ -25,7 +25,7 @@ The module generates posts that include:
 
 from openai import OpenAI
 
-from config import config
+from src.config import config
 
 
 class OPENAI_Handler:

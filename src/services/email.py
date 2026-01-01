@@ -22,10 +22,10 @@ Key Features:
 import smtplib
 from email.message import EmailMessage
 
-from config import config
-from global_state import state
+from src.config import config
+from src.global_state import state
 
-from data_types.pdf_types import PDF_OBJ
+from src.data_types.pdf_types import PDF_OBJ
 
 SMTP_SERVER = 'smtp.sendgrid.net'
 SMTP_PORT = 2525
@@ -83,7 +83,6 @@ def email(subject: str, body: str, to: str, attachments: list[PDF_OBJ] = None):
             smtp.login("apikey", password)
             smtp.send_message(msg)
             state.logger.info(f"Email sent successfully to {to}")
-            print("Email sent successfully.")
 
     except Exception as e:
         state.logger.error(f"Failed to send email: {e}")

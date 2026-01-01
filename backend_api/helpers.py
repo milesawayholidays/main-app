@@ -1,6 +1,6 @@
-from data_types.enums import REGION, CABIN
+from src.data_types.enums import REGION, CABIN
 
-from global_state import state
+from src.global_state import state
 
 def convert_region_to_enum(region: str) -> REGION:
     """
